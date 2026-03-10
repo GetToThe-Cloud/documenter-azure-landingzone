@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Azure Landing Zone Inventory</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/vis-network.min.js"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.2/dist/dist/vis-network.min.css" rel="stylesheet">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Progress Bar Overlay -->
+        <div id="progressOverlay" class="progress-overlay" style="display: none;">
+            <div class="progress-container">
+                <h3 class="progress-title">📡 Collecting Azure Landing Zone Data...</h3>
+                <div class="progress-bar-wrapper">
+                    <div class="progress-bar" id="progressBar">
+                        <div class="progress-bar-fill" id="progressBarFill"></div>
+                    </div>
+                    <div class="progress-percentage" id="progressPercentage">0%</div>
+                </div>
+                <div class="progress-status" id="progressStatus">Initializing...</div>
+            </div>
+        </div>
+        
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="header-title">
+                    <h1>🏢 Azure Landing Zone Inventory</h1>
+                    <span id="versionInfo" class="version-info"></span>
+                </div>
+                <div class="header-actions">
+                    <span id="lastUpdate" class="last-update"></span>
+                    <button id="refreshBtn" class="btn btn-secondary" onclick="refreshInventory()">
+                        <span class="icon">🔄</span> Refresh
+                    </button>
+                    <button id="exportJsonBtn" class="btn btn-secondary" onclick="exportToJSON()">
+                        <span class="icon">💾</span> Export JSON
+                    </button>
+                    <button id="exportBtn" class="btn btn-primary" onclick="exportToPDF()">
+                        <span class="icon">📄</span> Export PDF
+                    </button>
+                </div>
+            </div>
+            <div id="authStatus" class="auth-status"></div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Navigation Sidebar -->
+            <aside class="sidebar">
+                <nav class="nav-menu">
+                    <h3 class="nav-title">Categories</h3>
+                    <ul class="nav-list">
+                        <li><a href="#" onclick="showSection('overview')" class="nav-link active" data-section="overview">
+                            <span class="icon">📊</span> Overview
+                        </a></li>
+                        <li><a href="#" onclick="showSection('managementgroups')" class="nav-link" data-section="managementgroups">
+                            <span class="icon">🗂️</span> Management Groups
+                        </a></li>
+                        <li><a href="#" onclick="showSection('subscriptions')" class="nav-link" data-section="subscriptions">
+                            <span class="icon">💳</span> Subscriptions
+                        </a></li>
+                        <li><a href="#" onclick="showSection('policies')" class="nav-link" data-section="policies">
+                            <span class="icon">📋</span> Policies
+                        </a></li>
+                        <li><a href="#" onclick="showSection('roleassignments')" class="nav-link" data-section="roleassignments">
+                            <span class="icon">👥</span> Role Assignments
+                        </a></li>
+                        <li><a href="#" onclick="showSection('networking')" class="nav-link" data-section="networking">
+                            <span class="icon">🌐</span> Networking
+                        </a></li>
+                        <li><a href="#" onclick="showSection('virtualmachines')" class="nav-link" data-section="virtualmachines">
+                            <span class="icon">💻</span> Virtual Machines
+                        </a></li>
+                        <li><a href="#" onclick="showSection('governance')" class="nav-link" data-section="governance">
+                            <span class="icon">⚖️</span> Governance
+                        </a></li>
+                        <li><a href="#" onclick="showSection('diagram')" class="nav-link" data-section="diagram">
+                            <span class="icon">🔗</span> Resource Diagram
+                        </a></li>
+                        <li><a href="#" onclick="showSection('scoringconfig')" class="nav-link" data-section="scoringconfig">
+                            <span class="icon">⚙️</span> Scoring Configuration
+                        </a></li>
+                    </ul>
+                </nav>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content">
+                <!-- Authentication Required -->
+                <div id="authRequired" class="auth-required" style="display: none;">
+                    <div class="auth-card">
+                        <h2>🔐 Azure Authentication</h2>
+                        <p>Authentication is being requested automatically.</p>
+                        <p>Please check your terminal or browser for the device code login prompt.</p>
+                        <button onclick="authenticateAzure()" class="btn btn-primary btn-large">
+                            Retry Sign in
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Overview Section -->
+                <section id="overview" class="content-section active">
+                    <h2>📊 Overview</h2>
+                    <div class="info-banner">
+                        <strong>About Azure Landing Zone:</strong>
+                        <p id="overviewExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    <div class="summary-cards">
+                        <div class="card">
+                            <div class="card-icon">🗂️</div>
+                            <div class="card-content">
+                                <h3 id="totalManagementGroups">0</h3>
+                                <p>Management Groups</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">💳</div>
+                            <div class="card-content">
+                                <h3 id="totalSubscriptions">0</h3>
+                                <p>Subscriptions</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">📋</div>
+                            <div class="card-content">
+                                <h3 id="totalPolicyDefinitions">0</h3>
+                                <p>Policy Definitions</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">📦</div>
+                            <div class="card-content">
+                                <h3 id="totalPolicyInitiatives">0</h3>
+                                <p>Policy Initiatives</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">✅</div>
+                            <div class="card-content">
+                                <h3 id="totalPolicyAssignments">0</h3>
+                                <p>Policy Assignments</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">👥</div>
+                            <div class="card-content">
+                                <h3 id="totalRoleAssignments">0</h3>
+                                <p>Role Assignments</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🌐</div>
+                            <div class="card-content">
+                                <h3 id="totalVNets">0</h3>
+                                <p>Virtual Networks</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🔗</div>
+                            <div class="card-content">
+                                <h3 id="totalPeerings">0</h3>
+                                <p>VNet Peerings</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🌐</div>
+                            <div class="card-content">
+                                <h3 id="totalVirtualWans">0</h3>
+                                <p>Virtual WANs</p>
+                            </div>
+                        </div>
+                        <div class="card">                            <div class="card-icon">🔐</div>
+                            <div class="card-content">
+                                <h3 id="totalPrivateEndpoints">0</h3>
+                                <p>Private Endpoints</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🌍</div>
+                            <div class="card-content">
+                                <h3 id="totalPrivateDnsZones">0</h3>
+                                <p>Private DNS Zones</p>
+                            </div>
+                        </div>
+                        <div class="card">                            <div class="card-icon">�</div>
+                            <div class="card-content">
+                                <h3 id="totalVMs">0</h3>
+                                <p>Virtual Machines</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">�💰</div>
+                            <div class="card-content">
+                                <h3 id="totalBudgets">0</h3>
+                                <p>Budgets</p>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-icon">🔒</div>
+                            <div class="card-content">
+                                <h3 id="totalLocks">0</h3>
+                                <p>Resource Locks</p>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Best Practices Assessment -->
+                    <div id="bestPracticesSection" style="display: none; margin-top: 30px;">
+                        <h3 style="color: #6a1b9a; margin-bottom: 15px;">☁️ Cloud Adoption Framework Compliance</h3>
+                        <div class="info-banner" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white;">
+                            <div style="display: flex; align-items: center; justify-content: space-between;">
+                                <div>
+                                    <h2 style="color: white; margin: 0; font-size: 28px;" id="overallScore">0%</h2>
+                                    <p style="margin: 5px 0; opacity: 0.9;" id="overallMessage">Loading assessment...</p>
+                                </div>
+                                <div style="font-size: 48px;">🏆</div>
+                            </div>
+                        </div>
+                        
+                        <div class="summary-cards" style="margin-top: 20px;">
+                            <div class="card" id="bp-managementGroupHierarchy">
+                                <div class="card-icon">🗂️</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Management Groups</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                            <div class="card" id="bp-policyDrivenGovernance">
+                                <div class="card-icon">📋</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Policy Governance</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                            <div class="card" id="bp-identityAndAccess">
+                                <div class="card-icon">🔐</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Identity & Access</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                            <div class="card" id="bp-networkTopology">
+                                <div class="card-icon">🌐</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Network Topology</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                            <div class="card" id="bp-securityGovernance">
+                                <div class="card-icon">🛡️</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Security</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                            <div class="card" id="bp-costManagement">
+                                <div class="card-icon">💰</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Cost Management</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                            <div class="card" id="bp-resourceOrganization">
+                                <div class="card-icon">🏷️</div>
+                                <div class="card-content">
+                                    <h3>-</h3>
+                                    <p>Resource Organization</p>
+                                    <small class="bp-status"></small>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div id="bpRecommendations" style="margin-top: 20px; display: none;">
+                            <h4 style="color: #6a1b9a; margin-bottom: 10px;">📌 Recommended Actions</h4>
+                            <div class="info-banner" style="background-color: #fff8e1;">
+                                <ul id="recommendationsList" style="margin: 0; padding-left: 20px;">
+                                </ul>
+                            </div>
+                        </div>
+                        
+                        <div style="margin-top: 15px; padding: 10px; background-color: #f5f5f5; border-radius: 5px; font-size: 12px; color: #666;">
+                            <strong>Reference:</strong> 
+                            <a href="https://learn.microsoft.com/azure/cloud-adoption-framework/ready/landing-zone/" target="_blank" style="color: #6a1b9a;">
+                                Microsoft Cloud Adoption Framework - Azure Landing Zone Design Principles
+                            </a>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Management Groups Section -->
+                <section id="managementgroups" class="content-section">
+                    <h2>🗂️ Management Groups</h2>
+                    <div class="info-banner">
+                        <strong>About Management Groups:</strong>
+                        <p id="managementGroupsExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    <div id="managementgroupsContent" class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Display Name</th>
+                                    <th>Name</th>
+                                    <th>Parent</th>
+                                    <th>Children Count</th>
+                                    <th>Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="managementgroupsTableBody">
+                                <tr><td colspan="5">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Subscriptions Section -->
+                <section id="subscriptions" class="content-section">
+                    <h2>💳 Subscriptions</h2>
+                    <div class="info-banner">
+                        <strong>About Subscriptions:</strong>
+                        <p id="subscriptionsExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    <div id="subscriptionsContent" class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Subscription ID</th>
+                                    <th>State</th>
+                                    <th>Tags</th>
+                                </tr>
+                            </thead>
+                            <tbody id="subscriptionsTableBody">
+                                <tr><td colspan="4">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Policies Section -->
+                <section id="policies" class="content-section">
+                    <h2>📋 Policies</h2>
+                    <div class="info-banner">
+                        <strong>About Policies:</strong>
+                        <p id="policiesExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    
+                    <div class="subsection">
+                        <h3>Policy Definitions</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Display Name</th>
+                                        <th>Type</th>
+                                        <th>Mode</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="policyDefinitionsTableBody">
+                                    <tr><td colspan="4">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Policy Initiatives (Sets)</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Display Name</th>
+                                        <th>Type</th>
+                                        <th>Policies Count</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="policyInitiativesTableBody">
+                                    <tr><td colspan="4">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Policy Assignments</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Display Name</th>
+                                        <th>Enforcement Mode</th>
+                                        <th>Scope</th>
+                                        <th>Description</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="policyAssignmentsTableBody">
+                                    <tr><td colspan="4">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Role Assignments Section -->
+                <section id="roleassignments" class="content-section">
+                    <h2>👥 Role Assignments</h2>
+                    <div class="info-banner">
+                        <strong>About Role Assignments:</strong>
+                        <p id="roleAssignmentsExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    <div id="roleassignmentsContent" class="data-table-container">
+                        <table class="data-table">
+                            <thead>
+                                <tr>
+                                    <th>Display Name</th>
+                                    <th>Role</th>
+                                    <th>Scope</th>
+                                    <th>Type</th>
+                                </tr>
+                            </thead>
+                            <tbody id="roleassignmentsTableBody">
+                                <tr><td colspan="4">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Networking Section -->
+                <section id="networking" class="content-section">
+                    <h2>🌐 Networking</h2>
+                    <div class="info-banner">
+                        <strong>About Networking:</strong>
+                        <p id="networkingExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    
+                    <div class="subsection">
+                        <h3>Virtual Networks</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Address Space</th>
+                                        <th>Subnets</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vnetsTableBody">
+                                    <tr><td colspan="6">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>VNet Peerings</h3>
+                        <div class="data-table-container">
+                            <table class="data-table clickable-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Source VNet</th>
+                                        <th>Remote VNet</th>
+                                        <th>State</th>
+                                        <th>Allow VNet Access</th>
+                                        <th>Allow Forwarded Traffic</th>
+                                        <th>Allow Gateway Transit</th>
+                                        <th>Use Remote Gateways</th>
+                                        <th>Provisioning</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="peeringsTableBody">
+                                    <tr><td colspan="9">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>VPN Gateways</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Gateway Type</th>
+                                        <th>SKU</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="vpnGatewaysTableBody">
+                                    <tr><td colspan="6">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Virtual WANs</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Virtual Hubs</th>
+                                        <th>Branch-to-Branch</th>
+                                        <th>VNet-to-VNet</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="virtualWansTableBody">
+                                    <tr><td colspan="7">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Azure Firewalls</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Tier</th>
+                                        <th>Policy/Rules</th>
+                                        <th>Rule Collections</th>
+                                        <th>Threat Intel Mode</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="firewallsTableBody">
+                                    <tr><td colspan="8">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Azure Firewall Policies</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Tier</th>
+                                        <th>Total Rules</th>
+                                        <th>App Rules</th>
+                                        <th>Network Rules</th>
+                                        <th>NAT Rules</th>
+                                        <th>Intrusion Detection</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="firewallPoliciesTableBody">
+                                    <tr><td colspan="10">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Network Security Groups</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Security Rules</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nsgsTableBody">
+                                    <tr><td colspan="5">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Private DNS Zones</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Record Sets</th>
+                                        <th>VNet Links</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="privateDnsZonesTableBody">
+                                    <tr><td colspan="6">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Private Endpoints</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>VNet</th>
+                                        <th>Subnet</th>
+                                        <th>Private IP</th>
+                                        <th>Connected Resource</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="privateEndpointsTableBody">
+                                    <tr><td colspan="8">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Governance Section -->
+                <section id="governance" class="content-section">
+                    <h2>⚖️ Governance</h2>
+                    <div class="info-banner">
+                        <strong>About Governance:</strong>
+                        <p id="governanceExplanation" class="explanation-text">Loading...</p>
+                    </div>
+                    
+                    <div class="subsection">
+                        <h3>Budgets</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Amount</th>
+                                        <th>Time Grain</th>
+                                        <th>Current Spend</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="budgetsTableBody">
+                                    <tr><td colspan="5">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Resource Locks</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource</th>
+                                        <th>Level</th>
+                                        <th>Notes</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="locksTableBody">
+                                    <tr><td colspan="5">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Common Tags</h3>
+                        <div id="tagsContent" class="tags-container">
+                            <p>Loading...</p>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Virtual Machines Section -->
+                <section id="virtualmachines" class="content-section">
+                    <h2>💻 Virtual Machines</h2>
+                    <div class="info-banner">
+                        <strong>About Virtual Machines:</strong>
+                        <p>Virtual Machines (VMs) are compute resources running workloads in the Azure Landing Zone. They are connected to virtual networks and can be organized using availability sets or zones.</p>
+                    </div>
+                    <div id="virtualmachinesContent" class="data-table-container">
+                        <table class="data-table clickable-table">
+                            <thead>
+                                <tr>
+                                    <th>Name</th>
+                                    <th>Size</th>
+                                    <th>OS</th>
+                                    <th>Power State</th>
+                                    <th>VNet</th>
+                                    <th>Subnet</th>
+                                    <th>Private IP</th>
+                                    <th>Public IP</th>
+                                    <th>Location</th>
+                                    <th>Subscription</th>
+                                </tr>
+                            </thead>
+                            <tbody id="virtualmachinesTableBody">
+                                <tr><td colspan="10">Loading...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+
+                <!-- Resource Diagram Section -->
+                <section id="diagram" class="content-section">
+                    <h2>🔗 Resource Connections Diagram</h2>
+                    <div class="info-banner">
+                        <strong>About the Diagram:</strong>
+                        <p>This interactive diagram visualizes the relationships between Virtual Networks, VNet Peerings, Virtual Machines, and network resources. Click on nodes to see details and connections.</p>
+                    </div>
+                    <div class="diagram-controls">
+                        <button onclick="resetDiagram()" class="btn btn-secondary">
+                            <span class="icon">🔄</span> Reset View
+                        </button>
+                        <button onclick="fitDiagram()" class="btn btn-secondary">
+                            <span class="icon">📏</span> Fit to Screen
+                        </button>
+                    </div>
+                    <div id="networkDiagram" class="network-diagram"></div>
+                    <div id="resourceDetails" class="resource-details" style="display: none;">
+                        <h3 id="detailsTitle">Resource Details</h3>
+                        <button onclick="closeDetails()" class="close-btn">✕</button>
+                        <div id="detailsContent"></div>
+                    </div>
+                </section>
+
+                <!-- Scoring Configuration Section -->
+                <section id="scoringconfig" class="content-section">
+                    <h2>⚙️ CAF/WAF Scoring Configuration</h2>
+                    <div class="info-banner">
+                        <strong>About Scoring:</strong>
+                        <p>This section displays the current scoring rules used to assess your Azure Landing Zone against CAF best practices and WAF pillars. The rules are loaded from <code>scoring-config.json</code> and <code>waf-config.json</code> and can be modified to match your organization's requirements.</p>
+                    </div>
+                    
+                    <!-- CAF Configuration -->
+                    <div style="margin-bottom: 40px;">
+                        <h3 style="color: #0078d4; margin-bottom: 15px;">📊 Cloud Adoption Framework (CAF) Configuration</h3>
+                        
+                        <div class="card" style="margin-bottom: 20px;">
+                            <h3>Configuration Version</h3>
+                            <div id="scoringConfigVersion" class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                                <div class="stat-item">
+                                    <span class="stat-label">Version</span>
+                                    <span class="stat-value" id="configVersion">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Last Updated</span>
+                                    <span class="stat-value" id="configLastUpdated">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Total Categories</span>
+                                    <span class="stat-value" id="configTotalCategories">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Total Rules</span>
+                                    <span class="stat-value" id="configTotalRules">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3>Scoring Categories & Rules</h3>
+                            <p style="color: #666; margin-bottom: 20px;">Each category has a maximum score and individual rules that can award points based on specific conditions.</p>
+                            <div id="scoringRulesContainer">
+                                <!-- Scoring rules will be dynamically populated here -->
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3>Scoring Thresholds</h3>
+                            <p style="color: #666; margin-bottom: 15px;">These thresholds determine the overall assessment rating based on the percentage score achieved.</p>
+                            <div id="scoringThresholds" class="table-container">
+                                <!-- Thresholds will be dynamically populated here -->
+                            </div>
+                        </div>
+
+                        <div class="info-banner" style="background-color: #fff3cd; border-color: #ffc107;">
+                            <strong>💡 How to Customize:</strong>
+                            <p>To modify the CAF scoring rules, edit the <code>scoring-config.json</code> file in the application directory.</p>
+                            <p><strong>File location:</strong> <code>azurelandingzone-inventory/scoring-config.json</code></p>
+                        </div>
+                    </div>
+                    
+                    <!-- WAF Configuration -->
+                    <div style="margin-bottom: 40px;">
+                        <h3 style="color: #0078d4; margin-bottom: 15px;">🏗️ Well-Architected Framework (WAF) Configuration</h3>
+                        
+                        <div class="card" style="margin-bottom: 20px;">
+                            <h3>Configuration Version</h3>
+                            <div id="wafConfigVersion" class="stats-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px;">
+                                <div class="stat-item">
+                                    <span class="stat-label">Version</span>
+                                    <span class="stat-value" id="wafConfigVersionValue">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Last Updated</span>
+                                    <span class="stat-value" id="wafConfigLastUpdated">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Total Pillars</span>
+                                    <span class="stat-value" id="wafConfigTotalPillars">-</span>
+                                </div>
+                                <div class="stat-item">
+                                    <span class="stat-label">Total Checks</span>
+                                    <span class="stat-value" id="wafConfigTotalChecks">-</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="card">
+                            <h3>WAF Pillars & Checks</h3>
+                            <p style="color: #666; margin-bottom: 20px;">The five pillars of the Azure Well-Architected Framework with their assessment checks.</p>
+                            <div id="wafPillarsContainer">
+                                <!-- WAF pillars will be dynamically populated here -->
+                            </div>
+                        </div>
+
+                        <div class="info-banner" style="background-color: #fff3cd; border-color: #ffc107;">
+                            <strong>💡 How to Customize:</strong>
+                            <p>To modify the WAF assessment rules, edit the <code>waf-config.json</code> file in the application directory.</p>
+                            <p><strong>File location:</strong> <code>azurelandingzone-inventory/waf-config.json</code></p>
+                        </div>
+                    </div>
+
+                </section>
+
+            </main>
+        </div>
+        
+        <!-- VM Details Modal -->
+        <div id="vmDetailsModal" class="modal" style="display: none;">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2 id="vmModalTitle">Virtual Machine Details</h2>
+                    <span class="modal-close" onclick="closeVMModal()">&times;</span>
+                </div>
+                <div class="modal-body" id="vmModalBody">
+                    <!-- VM details will be populated here -->
+                </div>
+                <div class="modal-footer">
+                    <button onclick="closeVMModal()" class="btn btn-secondary">Close</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

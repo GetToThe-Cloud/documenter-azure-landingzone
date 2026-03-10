@@ -1,0 +1,225 @@
+{
+  "version": "1.0.0",
+  "description": "Azure Landing Zone CAF/WAF Assessment Scoring Configuration",
+  "lastUpdated": "2026-03-06",
+  "categories": {
+    "managementGroupHierarchy": {
+      "name": "Management Group Hierarchy",
+      "maxScore": 15,
+      "description": "Assessment of management group structure and organizational hierarchy",
+      "rules": [
+        {
+          "id": "mg-001",
+          "name": "Management Group Implementation",
+          "description": "Management groups are implemented for organizational structure",
+          "condition": "mgCount >= 2",
+          "points": 5,
+          "recommendation": "Implement a management group hierarchy (e.g., Root > Platform/Landing Zones > Corp/Online)"
+        },
+        {
+          "id": "mg-002",
+          "name": "Optimal Hierarchy Depth",
+          "description": "Management group hierarchy follows CAF recommendations (3-6 levels)",
+          "condition": "mgCount >= 3 AND mgCount <= 6",
+          "points": 5,
+          "recommendation": "Simplify management group structure to 3-6 levels for better manageability"
+        },
+        {
+          "id": "mg-003",
+          "name": "Subscription Isolation",
+          "description": "Multiple subscriptions for workload isolation and scale",
+          "condition": "subCount >= 3",
+          "points": 5,
+          "recommendation": "Adopt subscription democratization: Use separate subscriptions for platform, landing zones, and workloads"
+        }
+      ]
+    },
+    "policyDrivenGovernance": {
+      "name": "Policy-Driven Governance",
+      "maxScore": 20,
+      "description": "Assessment of Azure Policy implementation for governance and compliance",
+      "rules": [
+        {
+          "id": "pol-001",
+          "name": "Custom Policies Defined",
+          "description": "Organization has defined custom policies or initiatives",
+          "condition": "policyDefs > 0 OR policyInits > 0",
+          "points": 5,
+          "recommendation": "Define custom Azure Policies for security, compliance, and governance requirements"
+        },
+        {
+          "id": "pol-002",
+          "name": "Policy Assignments at Scale",
+          "description": "Comprehensive policy assignments across the organization",
+          "condition": "policyAssigns >= 5",
+          "points": 10,
+          "partialPoints": {
+            "condition": "policyAssigns > 0",
+            "points": 5
+          },
+          "recommendation": "Assign Azure Policy initiatives (e.g., Azure Security Benchmark, regulatory compliance)"
+        },
+        {
+          "id": "pol-003",
+          "name": "Policy Initiatives Usage",
+          "description": "Using policy initiatives for grouped policy management",
+          "condition": "policyInits > 0",
+          "points": 5,
+          "recommendation": "Group related policies into initiatives for easier management"
+        }
+      ]
+    },
+    "identityAndAccess": {
+      "name": "Identity and Access Management",
+      "maxScore": 15,
+      "description": "Assessment of RBAC and identity management implementation",
+      "rules": [
+        {
+          "id": "iam-001",
+          "name": "RBAC Implementation",
+          "description": "Role-Based Access Control is actively implemented",
+          "condition": "roleAssigns >= 10",
+          "points": 10,
+          "partialPoints": {
+            "condition": "roleAssigns > 0",
+            "points": 5
+          },
+          "recommendation": "Define and assign Azure RBAC roles at management group and subscription scopes"
+        },
+        {
+          "id": "iam-002",
+          "name": "Privileged Role Management",
+          "description": "Privileged roles (Owner/Contributor) are assigned appropriately",
+          "condition": "hasPrivilegedRoles == true",
+          "points": 5,
+          "recommendation": "Ensure privileged roles follow least-privilege principle and use PIM"
+        }
+      ]
+    },
+    "networkTopology": {
+      "name": "Network Topology and Connectivity",
+      "maxScore": 20,
+      "description": "Assessment of network architecture and connectivity implementation",
+      "rules": [
+        {
+          "id": "net-001",
+          "name": "Network Segmentation",
+          "description": "Multiple VNets for network segmentation",
+          "condition": "vnetCount >= 2",
+          "points": 5,
+          "recommendation": "Implement hub-spoke network topology or Azure Virtual WAN for enterprise-scale connectivity"
+        },
+        {
+          "id": "net-002",
+          "name": "VNet Connectivity",
+          "description": "VNet peering implemented for hub-spoke or mesh connectivity",
+          "condition": "peeringCount > 0 AND vnetCount >= 2",
+          "points": 10,
+          "recommendation": "Connect VNets using peering or Virtual WAN for centralized connectivity"
+        },
+        {
+          "id": "net-003",
+          "name": "Network Security Appliances",
+          "description": "Network security appliances (VPN/Firewall) deployed",
+          "condition": "vpnCount > 0 OR fwCount > 0",
+          "points": 5,
+          "recommendation": "Deploy Azure Firewall in hub VNet for centralized security and egress control"
+        }
+      ]
+    },
+    "securityGovernance": {
+      "name": "Security and Governance",
+      "maxScore": 10,
+      "description": "Assessment of security controls and protective measures",
+      "rules": [
+        {
+          "id": "sec-001",
+          "name": "Resource Protection",
+          "description": "Resource locks implemented to prevent accidental deletion",
+          "condition": "locks > 0",
+          "points": 5,
+          "recommendation": "Apply CanNotDelete locks on critical resources (networking, shared services)"
+        },
+        {
+          "id": "sec-002",
+          "name": "Network Micro-segmentation",
+          "description": "Network Security Groups deployed for subnet protection",
+          "condition": "nsgCount > 0",
+          "points": 5,
+          "recommendation": "Deploy Network Security Groups for subnet-level security and micro-segmentation"
+        }
+      ]
+    },
+    "costManagement": {
+      "name": "Cost Management",
+      "maxScore": 10,
+      "description": "Assessment of cost management and financial governance practices",
+      "rules": [
+        {
+          "id": "cost-001",
+          "name": "Budget Implementation",
+          "description": "Cost management with budget alerts and monitoring",
+          "condition": "budgets >= 3",
+          "points": 10,
+          "partialPoints": {
+            "condition": "budgets > 0",
+            "points": 5
+          },
+          "recommendation": "Configure Azure Budgets and Cost Management alerts for financial governance"
+        }
+      ]
+    },
+    "resourceOrganization": {
+      "name": "Resource Organization",
+      "maxScore": 10,
+      "description": "Assessment of resource tagging and organizational practices",
+      "rules": [
+        {
+          "id": "org-001",
+          "name": "Tagging Strategy",
+          "description": "Comprehensive tagging for resource organization and cost allocation",
+          "condition": "tagCount >= 5",
+          "points": 10,
+          "partialPoints": {
+            "condition": "tagCount > 0",
+            "points": 5
+          },
+          "recommendation": "Implement mandatory tagging policy using Azure Policy Modify effect with tags: Environment, CostCenter, Owner, Application"
+        }
+      ]
+    }
+  },
+  "scoringThresholds": {
+    "excellent": {
+      "min": 80,
+      "label": "Excellent",
+      "icon": "✓",
+      "message": "Your Azure Landing Zone demonstrates strong alignment with Cloud Adoption Framework best practices."
+    },
+    "good": {
+      "min": 60,
+      "label": "Good",
+      "icon": "✓",
+      "message": "Your Azure Landing Zone follows many CAF best practices with room for enhancement."
+    },
+    "fair": {
+      "min": 40,
+      "label": "Fair",
+      "icon": "⚠",
+      "message": "Your Azure Landing Zone has basic implementation but needs improvement in several areas."
+    },
+    "needs-improvement": {
+      "min": 0,
+      "label": "Needs Improvement",
+      "icon": "✗",
+      "message": "Your Azure Landing Zone requires significant work to align with CAF best practices."
+    }
+  },
+  "notes": [
+    "This configuration file defines the scoring rules for Azure Landing Zone assessment.",
+    "Each category has a maxScore and a set of rules that can award points.",
+    "Rules are evaluated based on conditions that check inventory data.",
+    "You can adjust points, thresholds, and recommendations to match your organization's requirements.",
+    "Version history should be maintained when making changes to this configuration."
+  ]
+}
