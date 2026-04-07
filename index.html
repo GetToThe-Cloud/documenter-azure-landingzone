@@ -536,6 +536,11 @@
 
                     <div class="subsection">
                         <h3>Azure Firewalls</h3>
+                        <div id="noFirewallNotice" class="info-banner" style="display:none;">
+                            <strong>&#9888;&#65039; No Azure Firewall Found</strong>
+                            No Azure Firewall resources were discovered in this environment. Azure Firewall is a managed, cloud-based network security service that protects Azure Virtual Network resources. Without a dedicated firewall, workloads rely solely on Network Security Groups (NSGs) for traffic filtering, which may not provide sufficient protection for an enterprise Landing Zone. Consider deploying Azure Firewall (Standard or Premium) or a third-party NVA to inspect and control traffic between spokes and to the internet.
+                        </div>
+                        <div id="firewallsTableWrapper">
                         <div class="data-table-container">
                             <table class="data-table">
                                 <thead>
@@ -554,6 +559,7 @@
                                     <tr><td colspan="8">Loading...</td></tr>
                                 </tbody>
                             </table>
+                        </div>
                         </div>
                     </div>
 
@@ -580,6 +586,11 @@
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+
+                    <div class="subsection" id="firewallPolicyRulesSection" style="display:none;">
+                        <h3>Firewall Policy Rules</h3>
+                        <div id="firewallPolicyRulesContainer">Loading...</div>
                     </div>
 
                     <div class="subsection">

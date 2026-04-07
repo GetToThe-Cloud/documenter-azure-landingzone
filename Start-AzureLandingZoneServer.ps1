@@ -116,6 +116,10 @@ function Test-AzureConnection {
 $script:IsAuthenticated = Test-AzureConnection
 $script:InventoryData = @{}
 $script:LastUpdate = $null
+$script:CollectionRunspace = $null
+$script:CollectionPipeline = $null
+$script:CollectionInProgress = $false
+$script:ProgressFilePath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-inventory-progress.json"
 
 Write-Host "🔐 Azure Authentication Status: $(if ($script:IsAuthenticated) { 'Connected ✓' } else { 'Not Connected ✗' })" -ForegroundColor $(if ($script:IsAuthenticated) { 'Green' } else { 'Yellow' })
 
@@ -261,13 +265,48 @@ try {
             
             '^/api/inventory/data$' {
                 if ($script:IsAuthenticated) {
-                    try {
-                        Write-Host "  📊 Collecting Azure Landing Zone inventory..." -ForegroundColor Cyan
-                        $script:InventoryData = Get-AzureLandingZoneInventory
-                        $script:LastUpdate = Get-Date
+                    if ($script:CollectionInProgress) {
+                        # Collection is running in background — tell client to poll /api/progress
+                        $content = @{ collecting = $true; message = "Collection in progress" } | ConvertTo-Json
+                    } elseif ($script:InventoryData -and $script:InventoryData.Count -gt 0 -and $script:InventoryData.ContainsKey('version')) {
+                        # Return cached data
                         $content = $script:InventoryData | ConvertTo-Json -Depth 20
-                    } catch {
-                        $content = @{ error = $_.Exception.Message } | ConvertTo-Json
+                    } else {
+                        # Start collection in background runspace
+                        try {
+                            Write-Host "  📊 Starting Azure Landing Zone inventory collection..." -ForegroundColor Cyan
+                            
+                            # Clear previous progress file
+                            if (Test-Path $script:ProgressFilePath) { Remove-Item $script:ProgressFilePath -Force -ErrorAction SilentlyContinue }
+                            
+                            # Save Azure context so the background runspace can authenticate
+                            $azContextPath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-az-context.json"
+                            Save-AzContext -Path $azContextPath -Force | Out-Null
+                            
+                            $script:CollectionInProgress = $true
+                            $script:CollectionRunspace = [runspacefactory]::CreateRunspace()
+                            $script:CollectionRunspace.Open()
+                            
+                            $script:CollectionPipeline = [powershell]::Create()
+                            $script:CollectionPipeline.Runspace = $script:CollectionRunspace
+                            
+                            $inventoryScript = $inventoryModulePath
+                            $script:CollectionPipeline.AddScript({
+                                param($scriptPath, $ctxPath)
+                                Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights -ErrorAction Stop
+                                Import-AzContext -Path $ctxPath -ErrorAction Stop | Out-Null
+                                . $scriptPath
+                                $result = Get-AzureLandingZoneInventory
+                                return $result
+                            }).AddArgument($inventoryScript).AddArgument($azContextPath) | Out-Null
+                            
+                            $script:CollectionHandle = $script:CollectionPipeline.BeginInvoke()
+                            
+                            $content = @{ collecting = $true; message = "Collection started" } | ConvertTo-Json
+                        } catch {
+                            $script:CollectionInProgress = $false
+                            $content = @{ error = $_.Exception.Message } | ConvertTo-Json
+                        }
                     }
                 } else {
                     $response.StatusCode = 401
@@ -276,18 +315,121 @@ try {
                 $contentType = "application/json"
             }
             
+            '^/api/progress$' {
+                if ($script:CollectionInProgress -and $script:CollectionHandle) {
+                    # Check if collection has completed
+                    if ($script:CollectionHandle.IsCompleted) {
+                        $completedStatus = 'Complete!'
+                        try {
+                            # Check for pipeline errors first
+                            if ($script:CollectionPipeline.HadErrors) {
+                                $errMsgs = $script:CollectionPipeline.Streams.Error | ForEach-Object { $_.ToString() }
+                                $errText = ($errMsgs | Select-Object -First 3) -join '; '
+                                Write-Host "  ⚠ Collection completed with errors: $errText" -ForegroundColor Yellow
+                            }
+                            $script:InventoryData = $script:CollectionPipeline.EndInvoke($script:CollectionHandle)
+                            # EndInvoke returns a PSDataCollection, extract the hashtable
+                            if ($script:InventoryData -is [System.Management.Automation.PSDataCollection[PSObject]]) {
+                                $script:InventoryData = $script:InventoryData[0]
+                            }
+                            if (-not $script:InventoryData -or ($script:InventoryData -is [hashtable] -and $script:InventoryData.Count -eq 0)) {
+                                throw "Collection returned empty data — Azure context may not have transferred to background process."
+                            }
+                            $script:LastUpdate = Get-Date
+                            Write-Host "  ✓ Inventory collection complete" -ForegroundColor Green
+                        } catch {
+                            Write-Host "  ✗ Inventory collection error: $($_.Exception.Message)" -ForegroundColor Red
+                            $script:InventoryData = @{ error = $_.Exception.Message }
+                            $completedStatus = "Error: $($_.Exception.Message)"
+                        } finally {
+                            $script:CollectionPipeline.Dispose()
+                            $script:CollectionRunspace.Close()
+                            $script:CollectionRunspace.Dispose()
+                            $script:CollectionInProgress = $false
+                            $script:CollectionPipeline = $null
+                            $script:CollectionRunspace = $null
+                            $script:CollectionHandle = $null
+                        }
+                        $content = @{ 
+                            completed = $true 
+                            percentage = 100 
+                            status = $completedStatus
+                        } | ConvertTo-Json
+                    } else {
+                        # Read progress from temp file
+                        $progressInfo = @{ completed = $false; percentage = 0; status = 'Starting...' }
+                        if (Test-Path $script:ProgressFilePath) {
+                            try {
+                                $rawProgress = [System.IO.File]::ReadAllText($script:ProgressFilePath)
+                                $fileProgress = $rawProgress | ConvertFrom-Json -ErrorAction SilentlyContinue
+                                if ($fileProgress) {
+                                    $progressInfo.percentage = $fileProgress.percentage
+                                    $progressInfo.status = $fileProgress.status
+                                    $progressInfo.step = $fileProgress.step
+                                    $progressInfo.totalSteps = $fileProgress.totalSteps
+                                }
+                            } catch {
+                                # File might be mid-write, use defaults
+                            }
+                        }
+                        $content = $progressInfo | ConvertTo-Json
+                    }
+                } else {
+                    $content = @{ 
+                        completed = -not $script:CollectionInProgress
+                        percentage = if ($script:InventoryData.Count -gt 0) { 100 } else { 0 }
+                        status = if ($script:InventoryData.Count -gt 0) { 'Complete!' } else { 'Idle' }
+                    } | ConvertTo-Json
+                }
+                $contentType = "application/json"
+            }
+            
             '^/api/inventory/refresh$' {
                 if ($script:IsAuthenticated) {
-                    try {
-                        Write-Host "  🔄 Refreshing inventory..." -ForegroundColor Cyan
-                        $script:InventoryData = Get-AzureLandingZoneInventory
-                        $script:LastUpdate = Get-Date
-                        $content = @{ 
-                            success = $true
-                            lastUpdate = $script:LastUpdate.ToString('o')
-                        } | ConvertTo-Json
-                    } catch {
-                        $content = @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json
+                    if ($script:CollectionInProgress) {
+                        $content = @{ success = $false; message = "Collection already in progress" } | ConvertTo-Json
+                    } else {
+                        try {
+                            Write-Host "  🔄 Starting inventory refresh..." -ForegroundColor Cyan
+                            
+                            # Clear previous progress file
+                            if (Test-Path $script:ProgressFilePath) { Remove-Item $script:ProgressFilePath -Force -ErrorAction SilentlyContinue }
+                            
+                            # Reset cached data so /api/inventory/data triggers new collection
+                            $script:InventoryData = @{}
+                            
+                            # Save Azure context so the background runspace can authenticate
+                            $azContextPath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-az-context.json"
+                            Save-AzContext -Path $azContextPath -Force | Out-Null
+                            
+                            $script:CollectionInProgress = $true
+                            $script:CollectionRunspace = [runspacefactory]::CreateRunspace()
+                            $script:CollectionRunspace.Open()
+                            
+                            $script:CollectionPipeline = [powershell]::Create()
+                            $script:CollectionPipeline.Runspace = $script:CollectionRunspace
+                            
+                            $inventoryScript = $inventoryModulePath
+                            $script:CollectionPipeline.AddScript({
+                                param($scriptPath, $ctxPath)
+                                Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights -ErrorAction Stop
+                                Import-AzContext -Path $ctxPath -ErrorAction Stop | Out-Null
+                                . $scriptPath
+                                $result = Get-AzureLandingZoneInventory
+                                return $result
+                            }).AddArgument($inventoryScript).AddArgument($azContextPath) | Out-Null
+                            
+                            $script:CollectionHandle = $script:CollectionPipeline.BeginInvoke()
+                            
+                            $content = @{ 
+                                success = $true
+                                message = "Refresh started"
+                                collecting = $true
+                            } | ConvertTo-Json
+                        } catch {
+                            $script:CollectionInProgress = $false
+                            $content = @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json
+                        }
                     }
                 } else {
                     $response.StatusCode = 401

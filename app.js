@@ -114,27 +114,56 @@ async function loadInventory() {
     try {
         showLoading();
         showProgress();
+        updateProgress(0, 'Starting inventory collection...');
         
-        // Simulate progress while waiting for server
-        const progressInterval = simulateProgress();
+        // Trigger the collection (server starts it in background)
+        const startResponse = await fetch('/api/inventory/data');
+        const startData = await startResponse.json();
         
-        const response = await fetch('/api/inventory/data');
-        
-        clearInterval(progressInterval);
-        updateProgress(95, 'Processing data...');
-        
-        if (response.status === 401) {
+        if (startResponse.status === 401) {
             hideProgress();
             showAuthRequired();
             return;
         }
         
-        inventoryData = await response.json();
+        if (startData.error) {
+            hideProgress();
+            alert('Error loading inventory: ' + startData.error);
+            return;
+        }
+        
+        // If data was already cached (no collection needed), use it directly
+        if (!startData.collecting && !startData.error) {
+            inventoryData = startData;
+            updateProgress(100, 'Complete!');
+            console.log(`📊 Inventory loaded - Data version: ${inventoryData.version || 'unknown'}, App version: ${APP_VERSION}`);
+            updateLastUpdate();
+            updateVersionInfo();
+            populateUI();
+            hideAuthRequired();
+            setTimeout(() => hideProgress(), 500);
+            return;
+        }
+        
+        // Poll for real progress from the server
+        await pollProgress();
+        
+        // Collection complete — fetch the full data
+        updateProgress(97, 'Loading inventory data...');
+        const dataResponse = await fetch('/api/inventory/data');
+        inventoryData = await dataResponse.json();
         
         if (inventoryData.error) {
             hideProgress();
             alert('Error loading inventory: ' + inventoryData.error);
             return;
+        }
+        
+        // If we still get a "collecting" response, poll a bit more
+        if (inventoryData.collecting) {
+            await pollProgress();
+            const retryResponse = await fetch('/api/inventory/data');
+            inventoryData = await retryResponse.json();
         }
         
         updateProgress(100, 'Complete!');
@@ -153,6 +182,30 @@ async function loadInventory() {
     }
 }
 
+// Poll the /api/progress endpoint until collection completes
+function pollProgress() {
+    return new Promise((resolve) => {
+        const interval = setInterval(async () => {
+            try {
+                const res = await fetch('/api/progress');
+                const progress = await res.json();
+                
+                updateProgress(
+                    progress.percentage || 0, 
+                    progress.status || 'Collecting...'
+                );
+                
+                if (progress.completed) {
+                    clearInterval(interval);
+                    resolve();
+                }
+            } catch (e) {
+                // Server busy or error, keep polling
+            }
+        }, 800);
+    });
+}
+
 // Refresh inventory
 async function refreshInventory() {
     const btn = document.getElementById('refreshBtn');
@@ -160,13 +213,44 @@ async function refreshInventory() {
     btn.innerHTML = '<span class="icon">⏳</span> Refreshing...';
     
     try {
-        await loadInventory();
+        showProgress();
+        updateProgress(0, 'Starting refresh...');
+        
+        // Tell server to clear cache and start new collection
+        const refreshRes = await fetch('/api/inventory/refresh');
+        const refreshData = await refreshRes.json();
+        
+        if (!refreshData.success && !refreshData.collecting) {
+            throw new Error(refreshData.error || refreshData.message || 'Refresh failed');
+        }
+        
+        // Poll progress until complete
+        await pollProgress();
+        
+        // Fetch the fresh data
+        updateProgress(97, 'Loading inventory data...');
+        const dataResponse = await fetch('/api/inventory/data');
+        inventoryData = await dataResponse.json();
+        
+        if (inventoryData.error) {
+            throw new Error(inventoryData.error);
+        }
+        
+        updateProgress(100, 'Complete!');
+        updateLastUpdate();
+        updateVersionInfo();
+        populateUI();
+        
+        setTimeout(() => hideProgress(), 500);
+        
         btn.innerHTML = '<span class="icon">✓</span> Refreshed!';
         setTimeout(() => {
             btn.innerHTML = '<span class="icon">🔄</span> Refresh';
             btn.disabled = false;
         }, 2000);
     } catch (error) {
+        hideProgress();
+        console.error('Error refreshing inventory:', error);
         btn.innerHTML = '<span class="icon">🔄</span> Refresh';
         btn.disabled = false;
     }
@@ -223,36 +307,6 @@ function updateProgress(percentage, status) {
     if (fill) fill.style.width = percentage + '%';
     if (percentageEl) percentageEl.textContent = Math.round(percentage) + '%';
     if (statusEl) statusEl.textContent = status;
-}
-
-function simulateProgress() {
-    let progress = 0;
-    const stages = [
-        { max: 10, status: 'Connecting to Azure...' },
-        { max: 20, status: 'Collecting Management Groups...' },
-        { max: 35, status: 'Gathering Subscriptions...' },
-        { max: 45, status: 'Analyzing Policies...' },
-        { max: 55, status: 'Collecting Role Assignments...' },
-        { max: 65, status: 'Scanning Virtual Networks...' },
-        { max: 75, status: 'Retrieving Firewall Configurations...' },
-        { max: 85, status: 'Checking Virtual Machines...' },
-        { max: 90, status: 'Gathering Governance Data...' }
-    ];
-    
-    let stageIndex = 0;
-    
-    return setInterval(() => {
-        if (progress < 90 && stageIndex < stages.length) {
-            const currentStage = stages[stageIndex];
-            progress += (currentStage.max - progress) * 0.1;
-            
-            if (progress >= currentStage.max * 0.9) {
-                stageIndex++;
-            }
-            
-            updateProgress(progress, currentStage.status);
-        }
-    }, 300);
 }
 
 // Hide authentication required screen
@@ -537,11 +591,16 @@ function populateNetworking() {
     
     // Firewalls
     const fwTbody = document.getElementById('firewallsTableBody');
+    const noFirewallNotice = document.getElementById('noFirewallNotice');
+    const firewallsTableWrapper = document.getElementById('firewallsTableWrapper');
     const firewalls = networking.firewalls || [];
     
     if (firewalls.length === 0) {
-        fwTbody.innerHTML = '<tr><td colspan="8">No Azure Firewalls found</td></tr>';
+        noFirewallNotice.style.display = 'block';
+        firewallsTableWrapper.style.display = 'none';
     } else {
+        noFirewallNotice.style.display = 'none';
+        firewallsTableWrapper.style.display = 'block';
         fwTbody.innerHTML = firewalls.map(fw => {
             let policyRulesInfo = '';
             if (fw.usingPolicy && fw.firewallPolicyName) {
@@ -591,7 +650,130 @@ function populateNetworking() {
             </tr>
         `).join('');
     }
-    
+
+    // Firewall Policy Rules (only shown when firewalls are present)
+    const policyRulesSection = document.getElementById('firewallPolicyRulesSection');
+    const policyRulesContainer = document.getElementById('firewallPolicyRulesContainer');
+
+    if (firewalls.length === 0 || firewallPolicies.length === 0) {
+        policyRulesSection.style.display = 'none';
+    } else {
+        policyRulesSection.style.display = 'block';
+
+        // Build a map: policyName → policy object (for quick lookup)
+        const policyMap = {};
+        firewallPolicies.forEach(p => { policyMap[p.name] = p; });
+
+        // Collect the set of policy names that are actually attached to a firewall
+        const attachedPolicyNames = new Set(
+            firewalls.filter(fw => fw.usingPolicy && fw.firewallPolicyName)
+                     .map(fw => fw.firewallPolicyName)
+        );
+
+        // Render per-policy rule details
+        const policySections = firewallPolicies
+            .filter(p => attachedPolicyNames.has(p.name))
+            .map(policy => {
+                const groups = policy.ruleCollectionGroupDetails || [];
+
+                if (groups.length === 0) {
+                    return `
+                        <div style="margin-bottom:2rem;">
+                            <h4 style="margin-bottom:0.5rem;">${policy.name} <small style="font-weight:normal;color:#888;">(${policy.subscription || ''})</small></h4>
+                            <p style="color:#888;">No rule collection groups found for this policy.</p>
+                        </div>`;
+                }
+
+                const groupsHtml = groups.map(rcg => {
+                    const collectionsHtml = (rcg.ruleCollections || []).map(rc => {
+                        const rules = rc.rules || [];
+                        const typeLabel = rc.ruleCollectionType === 'FirewallPolicyNatRuleCollection'
+                            ? 'NAT'
+                            : (rules[0]?.ruleType === 'ApplicationRule' ? 'App' : 'Network');
+
+                        const rulesHtml = rules.length === 0
+                            ? `<tr><td colspan="6" style="color:#888;">No rules defined</td></tr>`
+                            : rules.map(rule => {
+                                let src = [
+                                    ...(rule.sourceAddresses || []),
+                                    ...(rule.sourceIpGroups   || [])
+                                ].join(', ') || '*';
+                                let dst = '';
+                                let extra = '';
+
+                                if (rule.ruleType === 'ApplicationRule') {
+                                    dst = [...(rule.targetFqdns || []), ...(rule.fqdnTags || []), ...(rule.webCategories || []), ...(rule.targetUrls || [])].join(', ') || '*';
+                                    extra = (rule.protocols || []).join(', ') || 'Any';
+                                } else if (rule.ruleType === 'NatRule') {
+                                    dst = [...(rule.destinationAddresses || [])].join(', ') || '*';
+                                    const translated = rule.translatedFqdn || rule.translatedAddress || '';
+                                    extra = `→ ${translated}:${rule.translatedPort || ''}`;
+                                } else {
+                                    dst = [
+                                        ...(rule.destinationAddresses || []),
+                                        ...(rule.destinationIpGroups  || []),
+                                        ...(rule.destinationFqdns     || [])
+                                    ].join(', ') || '*';
+                                    extra = [
+                                        (rule.ipProtocols     || []).join('/'),
+                                        (rule.destinationPorts|| []).join(', ')
+                                    ].filter(Boolean).join(' ') || 'Any';
+                                }
+
+                                return `
+                                    <tr>
+                                        <td>${rule.name || 'N/A'}</td>
+                                        <td><span class="badge badge-info">${rule.ruleType || ''}</span></td>
+                                        <td><code>${src}</code></td>
+                                        <td><code>${dst}</code></td>
+                                        <td>${extra}</td>
+                                        <td>${rule.description || ''}</td>
+                                    </tr>`;
+                            }).join('');
+
+                        return `
+                            <div style="margin-bottom:1rem; padding-left:1rem; border-left:3px solid #e0e0e0;">
+                                <div style="font-weight:600; margin-bottom:0.4rem;">
+                                    ${rc.name || 'Unnamed collection'}
+                                    &nbsp;<span class="badge badge-info">${typeLabel}</span>
+                                    &nbsp;<span style="color:#888;font-size:0.85em;">Priority: ${rc.priority ?? 'N/A'} &mdash; Action: ${rc.action || 'N/A'}</span>
+                                </div>
+                                <div class="data-table-container" style="margin:0;">
+                                    <table class="data-table" style="font-size:0.85em;">
+                                        <thead><tr>
+                                            <th>Rule Name</th><th>Type</th><th>Source</th>
+                                            <th>Destination</th><th>Protocol / Port</th><th>Description</th>
+                                        </tr></thead>
+                                        <tbody>${rulesHtml}</tbody>
+                                    </table>
+                                </div>
+                            </div>`;
+                    }).join('');
+
+                    return `
+                        <div style="margin-bottom:1.5rem; padding:1rem; background:#fafafa; border-radius:6px; border:1px solid #e8e8e8;">
+                            <div style="font-weight:700; margin-bottom:0.75rem;">
+                                Rule Collection Group: ${rcg.name || 'Unnamed'}
+                                <span style="color:#888;font-size:0.85em; font-weight:normal;">&mdash; Priority: ${rcg.priority ?? 'N/A'}</span>
+                            </div>
+                            ${collectionsHtml || '<p style="color:#888;">No rule collections.</p>'}
+                        </div>`;
+                }).join('');
+
+                return `
+                    <div style="margin-bottom:2.5rem;">
+                        <h4 style="margin-bottom:0.75rem; border-bottom:1px solid #ddd; padding-bottom:0.4rem;">
+                            ${policy.name}
+                            <small style="font-weight:normal; color:#888; font-size:0.8em;">&nbsp;${policy.subscription || ''} &mdash; ${policy.tier || ''}</small>
+                        </h4>
+                        ${groupsHtml}
+                    </div>`;
+            }).join('');
+
+        policyRulesContainer.innerHTML = policySections ||
+            '<p style="color:#888;">No rules found for the attached firewall policies.</p>';
+    }
+
     // NSGs
     const nsgTbody = document.getElementById('nsgsTableBody');
     const nsgs = networking.networkSecurityGroups || [];

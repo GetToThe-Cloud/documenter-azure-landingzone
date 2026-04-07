@@ -21,6 +21,31 @@
 # Script version
 $script:Version = "1.0.0"
 
+# Progress file path for real-time progress reporting
+$script:ProgressFilePath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-inventory-progress.json"
+
+function Update-CollectionProgress {
+    param(
+        [int]$Step,
+        [int]$TotalSteps,
+        [string]$Status
+    )
+    $percentage = [math]::Round(($Step / $TotalSteps) * 95)
+    $progressData = @{
+        step = $Step
+        totalSteps = $TotalSteps
+        percentage = $percentage
+        status = $Status
+        timestamp = (Get-Date).ToString('o')
+    } | ConvertTo-Json -Compress
+    try {
+        [System.IO.File]::WriteAllText($script:ProgressFilePath, $progressData)
+    } catch {
+        # Non-critical - continue even if progress file write fails
+    }
+    Write-Host "    ○ [$Step/$TotalSteps] $Status" -ForegroundColor Gray
+}
+
 function Get-AzureLandingZoneInventory {
     [CmdletBinding()]
     param()
@@ -41,7 +66,8 @@ function Get-AzureLandingZoneInventory {
         throw "Required modules not loaded: $($missingModules -join ', ')"
     }
     
-    Write-Host "    ○ Gathering Azure Landing Zone inventory (v$script:Version)..." -ForegroundColor Gray
+    $totalSteps = 11
+    Update-CollectionProgress -Step 0 -TotalSteps $totalSteps -Status 'Initializing inventory collection...'
     Write-Host "      Note: Requires connectivity to management.azure.com and Azure endpoints" -ForegroundColor Gray
     
     $inventory = @{
@@ -253,7 +279,7 @@ Move Strategy:
     
     try {
         # Get Management Groups
-        Write-Host "    ○ Collecting Management Groups..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 1 -TotalSteps $totalSteps -Status 'Collecting Management Groups...'
         
         # Store current context
         $currentContext = Get-AzContext
@@ -317,7 +343,7 @@ Move Strategy:
         }
         
         # Get Subscriptions
-        Write-Host "    ○ Collecting Subscriptions..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 2 -TotalSteps $totalSteps -Status 'Collecting Subscriptions...'
         $subs = Get-AzSubscription
         $inventory.summary.totalSubscriptions = $subs.Count
         
@@ -360,7 +386,7 @@ Move Strategy:
         Write-Host "      ✓ Collected $($inventory.summary.totalSubscriptions) subscriptions" -ForegroundColor Green
         
         # Get Policy Definitions
-        Write-Host "    ○ Collecting Policy Definitions..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 3 -TotalSteps $totalSteps -Status 'Collecting Policy Definitions...'
         try {
             # Collect both custom and built-in policies
             $customPolicyDefs = Get-AzPolicyDefinition -Custom -ErrorAction SilentlyContinue
@@ -404,7 +430,7 @@ Move Strategy:
         }
         
         # Get Policy Initiatives (SetDefinitions)
-        Write-Host "    ○ Collecting Policy Initiatives..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 4 -TotalSteps $totalSteps -Status 'Collecting Policy Initiatives...'
         try {
             # Collect both custom and built-in initiatives
             $customInitiatives = Get-AzPolicySetDefinition -Custom -ErrorAction SilentlyContinue
@@ -453,7 +479,7 @@ Move Strategy:
         }
         
         # Get Policy Assignments
-        Write-Host "    ○ Collecting Policy Assignments..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 5 -TotalSteps $totalSteps -Status 'Collecting Policy Assignments...'
         try {
             $assignments = Get-AzPolicyAssignment -ErrorAction SilentlyContinue
             $inventory.summary.totalPolicyAssignments = $assignments.Count
@@ -502,7 +528,7 @@ Move Strategy:
         }
         
         # Get Role Assignments
-        Write-Host "    ○ Collecting Role Assignments..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 6 -TotalSteps $totalSteps -Status 'Collecting Role Assignments...'
         try {
             $roles = Get-AzRoleAssignment -ErrorAction SilentlyContinue
             $inventory.summary.totalRoleAssignments = $roles.Count
@@ -523,7 +549,7 @@ Move Strategy:
         }
         
         # Get Networking Resources (loop through subscriptions)
-        Write-Host "    ○ Collecting Networking Resources..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 7 -TotalSteps $totalSteps -Status 'Collecting Networking Resources...'
         foreach ($sub in $subs) {
             try {
                 # Try to set context with better error handling
@@ -657,9 +683,16 @@ Move Strategy:
                         try {
                             $policy = Get-AzFirewallPolicy -ResourceGroupName $policyResource.ResourceGroupName -Name $policyResource.Name -ErrorAction SilentlyContinue
                             if ($policy) {
-                                # Get rule collection groups using Get-AzResource
-                                $ruleCollectionGroupResources = Get-AzResource -ResourceType 'Microsoft.Network/firewallPolicies/ruleCollectionGroups' -ResourceGroupName $policy.ResourceGroupName -ErrorAction SilentlyContinue | 
-                                    Where-Object { $_.ResourceId -like "*$($policy.Name)*" }
+                                # Get rule collection groups via REST API (more reliable than cmdlets for nested data)
+                                $rcgApiPath = "$($policy.Id)/ruleCollectionGroups?api-version=2023-11-01"
+                                $rcgListResponse = Invoke-AzRestMethod -Path $rcgApiPath -Method GET -ErrorAction SilentlyContinue
+                                $rcgList = @()
+                                if ($rcgListResponse -and $rcgListResponse.StatusCode -eq 200) {
+                                    $rcgListBody = $rcgListResponse.Content | ConvertFrom-Json -Depth 20 -ErrorAction SilentlyContinue
+                                    if ($rcgListBody.value) {
+                                        $rcgList = @($rcgListBody.value)
+                                    }
+                                }
                                 
                                 $totalRuleCollections = 0
                                 $totalRules = 0
@@ -667,46 +700,93 @@ Move Strategy:
                                 $networkRuleCollections = 0
                                 $natRuleCollections = 0
                                 $ruleCollectionGroupCount = 0
+                                $ruleCollectionGroupDetails = @()
                                 
-                                # Try to get detailed rule information from each rule collection group
-                                foreach ($rcgResource in $ruleCollectionGroupResources) {
+                                # Parse rule details directly from the REST API response
+                                foreach ($rcgItem in $rcgList) {
                                     try {
-                                        $rcgName = $rcgResource.Name
-                                        $rcGroup = Get-AzFirewallPolicyRuleCollectionGroup -Name $rcgName -ResourceGroupName $policy.ResourceGroupName -AzureFirewallPolicyName $policy.Name -ErrorAction SilentlyContinue
+                                        $rcgProps = $rcgItem.properties
+                                        if (-not $rcgProps) { continue }
                                         
-                                        if ($rcGroup) {
-                                            $ruleCollectionGroupCount++
+                                        $ruleCollectionGroupCount++
+                                        $rcgDetail = @{
+                                            name            = (Split-Path $rcgItem.id -Leaf)
+                                            priority        = $rcgProps.priority
+                                            ruleCollections = @()
+                                        }
+                                        
+                                        $ruleCollections = @($rcgProps.ruleCollections)
+                                        if ($ruleCollections.Count -gt 0) {
+                                            $totalRuleCollections += $ruleCollections.Count
                                             
-                                            if ($rcGroup.Properties.RuleCollection) {
-                                                $totalRuleCollections += $rcGroup.Properties.RuleCollection.Count
+                                            foreach ($rc in $ruleCollections) {
+                                                $rcDetail = @{
+                                                    name               = $rc.name
+                                                    priority           = $rc.priority
+                                                    action             = $rc.action.type
+                                                    ruleCollectionType = $rc.ruleCollectionType
+                                                    rules              = @()
+                                                }
                                                 
-                                                foreach ($rc in $rcGroup.Properties.RuleCollection) {
-                                                    if ($rc.Rules) {
-                                                        $ruleCount = $rc.Rules.Count
-                                                        $totalRules += $ruleCount
-                                                        
-                                                        # Categorize by type
-                                                        if ($rc.RuleCollectionType -eq 'FirewallPolicyFilterRuleCollection') {
-                                                            if ($rc.Rules[0].RuleType -eq 'ApplicationRule') {
-                                                                $applicationRuleCollections++
-                                                            } elseif ($rc.Rules[0].RuleType -eq 'NetworkRule') {
-                                                                $networkRuleCollections++
-                                                            }
-                                                        } elseif ($rc.RuleCollectionType -eq 'FirewallPolicyNatRuleCollection') {
-                                                            $natRuleCollections++
+                                                $rules = @($rc.rules)
+                                                if ($rules.Count -gt 0) {
+                                                    $totalRules += $rules.Count
+                                                    
+                                                    foreach ($rule in $rules) {
+                                                        $ruleDetail = @{
+                                                            name        = $rule.name
+                                                            ruleType    = $rule.ruleType
+                                                            description = $rule.description
                                                         }
+                                                        
+                                                        if ($rule.sourceAddresses)  { $ruleDetail.sourceAddresses  = @($rule.sourceAddresses) }
+                                                        if ($rule.sourceIpGroups)   { $ruleDetail.sourceIpGroups   = @($rule.sourceIpGroups) }
+                                                        
+                                                        if ($rule.ruleType -eq 'ApplicationRule') {
+                                                            if ($rule.targetFqdns)  { $ruleDetail.targetFqdns  = @($rule.targetFqdns) }
+                                                            if ($rule.fqdnTags)     { $ruleDetail.fqdnTags     = @($rule.fqdnTags) }
+                                                            if ($rule.webCategories) { $ruleDetail.webCategories = @($rule.webCategories) }
+                                                            if ($rule.targetUrls)   { $ruleDetail.targetUrls   = @($rule.targetUrls) }
+                                                            if ($rule.protocols)    { $ruleDetail.protocols    = @($rule.protocols | ForEach-Object { "$($_.protocolType):$($_.port)" }) }
+                                                        } elseif ($rule.ruleType -eq 'NetworkRule') {
+                                                            if ($rule.destinationAddresses) { $ruleDetail.destinationAddresses = @($rule.destinationAddresses) }
+                                                            if ($rule.destinationIpGroups)  { $ruleDetail.destinationIpGroups  = @($rule.destinationIpGroups) }
+                                                            if ($rule.destinationFqdns)     { $ruleDetail.destinationFqdns     = @($rule.destinationFqdns) }
+                                                            if ($rule.destinationPorts)     { $ruleDetail.destinationPorts     = @($rule.destinationPorts) }
+                                                            if ($rule.ipProtocols)          { $ruleDetail.ipProtocols          = @($rule.ipProtocols) }
+                                                        } elseif ($rule.ruleType -eq 'NatRule') {
+                                                            if ($rule.sourceAddresses)      { $ruleDetail.sourceAddresses      = @($rule.sourceAddresses) }
+                                                            if ($rule.destinationAddresses) { $ruleDetail.destinationAddresses = @($rule.destinationAddresses) }
+                                                            if ($rule.destinationPorts)     { $ruleDetail.destinationPorts     = @($rule.destinationPorts) }
+                                                            if ($rule.ipProtocols)          { $ruleDetail.ipProtocols          = @($rule.ipProtocols) }
+                                                            if ($rule.translatedAddress)    { $ruleDetail.translatedAddress    = $rule.translatedAddress }
+                                                            if ($rule.translatedPort)       { $ruleDetail.translatedPort       = $rule.translatedPort }
+                                                            if ($rule.translatedFqdn)       { $ruleDetail.translatedFqdn       = $rule.translatedFqdn }
+                                                        }
+                                                        
+                                                        $rcDetail.rules += $ruleDetail
+                                                    }
+                                                    
+                                                    # Categorize rule collections by type
+                                                    if ($rc.ruleCollectionType -eq 'FirewallPolicyFilterRuleCollection') {
+                                                        if ($rules[0].ruleType -eq 'ApplicationRule') {
+                                                            $applicationRuleCollections++
+                                                        } elseif ($rules[0].ruleType -eq 'NetworkRule') {
+                                                            $networkRuleCollections++
+                                                        }
+                                                    } elseif ($rc.ruleCollectionType -eq 'FirewallPolicyNatRuleCollection') {
+                                                        $natRuleCollections++
                                                     }
                                                 }
+                                                
+                                                $rcgDetail.ruleCollections += $rcDetail
                                             }
                                         }
+                                        
+                                        $ruleCollectionGroupDetails += $rcgDetail
                                     } catch {
-                                        # Silently continue if we can't get details for a specific rule collection group
+                                        Write-Host "      ⚠️  Error parsing rule collection group: $($_.Exception.Message)" -ForegroundColor Yellow
                                     }
-                                }
-                                
-                                # If we couldn't get rule collection groups, use the count from resources
-                                if ($ruleCollectionGroupCount -eq 0 -and $ruleCollectionGroupResources) {
-                                    $ruleCollectionGroupCount = $ruleCollectionGroupResources.Count
                                 }
                                 
                                 $inventory.networking.firewallPolicies += @{
@@ -725,6 +805,7 @@ Move Strategy:
                                     applicationRuleCollections = $applicationRuleCollections
                                     networkRuleCollections = $networkRuleCollections
                                     natRuleCollections = $natRuleCollections
+                                    ruleCollectionGroupDetails = $ruleCollectionGroupDetails
                                     basePolicy = if ($policy.BasePolicy) { Split-Path $policy.BasePolicy.Id -Leaf } else { $null }
                                     subscription = $sub.Name
                                 }
@@ -942,7 +1023,7 @@ Move Strategy:
         }
         
         # Get Virtual Machines
-        Write-Host "    ○ Collecting Virtual Machines..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 8 -TotalSteps $totalSteps -Status 'Collecting Virtual Machines...'
         foreach ($sub in $subs) {
             try {
                 # Try to set context with better error handling
@@ -1038,7 +1119,7 @@ Move Strategy:
         }
         
         # Get Governance Resources
-        Write-Host "    ○ Collecting Governance Resources..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 9 -TotalSteps $totalSteps -Status 'Collecting Governance Resources...'
         foreach ($sub in $subs) {
             try {
                 # Try to set context with better error handling
@@ -1184,8 +1265,9 @@ Move Strategy:
         Write-Host "    ✓ Inventory collection complete" -ForegroundColor Green
         
         # Evaluate Best Practices Compliance
-        Write-Host "    ○ Evaluating Cloud Adoption Framework compliance..." -ForegroundColor Gray
+        Update-CollectionProgress -Step 10 -TotalSteps $totalSteps -Status 'Evaluating Cloud Adoption Framework compliance...'
         $inventory.bestPractices = Get-LandingZoneBestPracticesAssessment -Inventory $inventory
+        Update-CollectionProgress -Step 11 -TotalSteps $totalSteps -Status 'Complete!'
         Write-Host "    ✓ Best practices assessment complete" -ForegroundColor Green
         
     } catch {
