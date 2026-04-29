@@ -316,7 +316,7 @@ Get-AzManagementGroup
 ### Step 1: Download or Clone
 
 ```bash
-git clone https://github.com/GetToTheCloud/AzureDocumenter.git
+git clone https://github.com/GetToThe-Cloud/documenter-azure-landingzone.git
 cd AzureDocumenter/azurelandingzone-inventory
 ```
 
