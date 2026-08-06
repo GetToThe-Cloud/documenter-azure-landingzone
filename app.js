@@ -4,6 +4,21 @@ let isAuthenticated = false;
 let wafConfig = null;
 const APP_VERSION = "1.0.0";
 
+// Escape untrusted values before inserting into HTML (XSS protection)
+function escapeHtml(value) {
+    if (value === null || value === undefined) return '';
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+const esc = escapeHtml;
+
+// Headers required by the server's CSRF guard on state-changing endpoints
+const CSRF_HEADERS = { 'X-Requested-With': 'XMLHttpRequest' };
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', () => {
     console.log(`🏢 Azure Landing Zone Inventory v${APP_VERSION}`);
@@ -40,8 +55,8 @@ function updateAuthUI(data) {
     if (data.authenticated && data.context) {
         authStatus.className = 'auth-status authenticated';
         authStatus.innerHTML = `
-            ✓ Authenticated as <strong>${data.context.account}</strong><br>
-            Tenant: ${data.context.tenant}
+            ✓ Authenticated as <strong>${esc(data.context.account)}</strong><br>
+            Tenant: ${esc(data.context.tenant)}
         `;
     } else {
         authStatus.className = 'auth-status not-authenticated';
@@ -73,7 +88,7 @@ async function requestAzureLogin() {
     try {
         authStatus.innerHTML = '🔐 Requesting Azure login... Please check your browser or terminal for authentication instructions.';
         
-        const response = await fetch('/api/auth/login', { method: 'POST' });
+        const response = await fetch('/api/auth/login', { method: 'POST', headers: CSRF_HEADERS });
         const data = await response.json();
         
         if (data.success) {
@@ -83,7 +98,7 @@ async function requestAzureLogin() {
             if (data.managementGroupsAccessible === false) {
                 message += '<br>⚠️ Warning: Management Groups not accessible. You may need "Management Group Reader" role.';
             } else if (data.managementGroupCount !== undefined) {
-                message += ` (${data.managementGroupCount} management groups found)`;
+                message += ` (${esc(data.managementGroupCount)} management groups found)`;
             }
             message += '<br>Loading data...';
             
@@ -93,7 +108,7 @@ async function requestAzureLogin() {
             setTimeout(() => location.reload(), 1500);
         } else {
             authStatus.className = 'auth-status not-authenticated';
-            authStatus.innerHTML = `⚠️ Authentication required. ${data.message || 'Please sign in to Azure.'}`;
+            authStatus.innerHTML = `⚠️ Authentication required. ${esc(data.message || 'Please sign in to Azure.')}`;
         }
     } catch (error) {
         console.error('Error requesting Azure login:', error);
@@ -217,7 +232,7 @@ async function refreshInventory() {
         updateProgress(0, 'Starting refresh...');
         
         // Tell server to clear cache and start new collection
-        const refreshRes = await fetch('/api/inventory/refresh');
+        const refreshRes = await fetch('/api/inventory/refresh', { method: 'POST', headers: CSRF_HEADERS });
         const refreshData = await refreshRes.json();
         
         if (!refreshData.success && !refreshData.collecting) {
@@ -379,11 +394,11 @@ function populateManagementGroups() {
     
     tbody.innerHTML = mgs.map(mg => `
         <tr>
-            <td><strong>${mg.displayName || 'N/A'}</strong></td>
-            <td><code>${mg.name || 'N/A'}</code></td>
-            <td>${mg.parentName || 'N/A'}</td>
+            <td><strong>${esc(mg.displayName || 'N/A')}</strong></td>
+            <td><code>${esc(mg.name || 'N/A')}</code></td>
+            <td>${esc(mg.parentName || 'N/A')}</td>
             <td>${mg.children ? mg.children.length : 0}</td>
-            <td>${mg.type || 'N/A'}</td>
+            <td>${esc(mg.type || 'N/A')}</td>
         </tr>
     `).join('');
 }
@@ -400,9 +415,9 @@ function populateSubscriptions() {
     
     tbody.innerHTML = subs.map(sub => `
         <tr>
-            <td><strong>${sub.name || 'N/A'}</strong></td>
-            <td><code>${sub.subscriptionId || 'N/A'}</code></td>
-            <td><span class="badge ${sub.state === 'Enabled' ? 'badge-success' : 'badge-warning'}">${sub.state || 'Unknown'}</span></td>
+            <td><strong>${esc(sub.name || 'N/A')}</strong></td>
+            <td><code>${esc(sub.subscriptionId || 'N/A')}</code></td>
+            <td><span class="badge ${sub.state === 'Enabled' ? 'badge-success' : 'badge-warning'}">${esc(sub.state || 'Unknown')}</span></td>
             <td>${formatTags(sub.tags)}</td>
         </tr>
     `).join('');
@@ -427,10 +442,10 @@ function populatePolicies() {
             
             return `
                 <tr>
-                    <td><strong>${displayName}</strong></td>
-                    <td><span class="badge ${policyType === 'Custom' ? 'badge-primary' : 'badge-secondary'}">${policyType}</span></td>
-                    <td>${mode}</td>
-                    <td>${truncate(description, 100)}</td>
+                    <td><strong>${esc(displayName)}</strong></td>
+                    <td><span class="badge ${policyType === 'Custom' ? 'badge-primary' : 'badge-secondary'}">${esc(policyType)}</span></td>
+                    <td>${esc(mode)}</td>
+                    <td>${esc(truncate(description, 100))}</td>
                 </tr>
             `;
         }).join('');
@@ -451,10 +466,10 @@ function populatePolicies() {
             
             return `
                 <tr>
-                    <td><strong>${displayName}</strong></td>
-                    <td><span class="badge ${policyType === 'Custom' ? 'badge-primary' : 'badge-secondary'}">${policyType}</span></td>
+                    <td><strong>${esc(displayName)}</strong></td>
+                    <td><span class="badge ${policyType === 'Custom' ? 'badge-primary' : 'badge-secondary'}">${esc(policyType)}</span></td>
                     <td>${policyCount}</td>
-                    <td>${truncate(description, 100)}</td>
+                    <td>${esc(truncate(description, 100))}</td>
                 </tr>
             `;
         }).join('');
@@ -475,10 +490,10 @@ function populatePolicies() {
             
             return `
                 <tr>
-                    <td><strong>${displayName}</strong></td>
-                    <td><span class="badge ${enforcementMode === 'Default' ? 'badge-success' : 'badge-warning'}">${enforcementMode}</span></td>
-                    <td><small title="${scope}">${truncate(scope, 80)}</small></td>
-                    <td>${truncate(description, 80)}</td>
+                    <td><strong>${esc(displayName)}</strong></td>
+                    <td><span class="badge ${enforcementMode === 'Default' ? 'badge-success' : 'badge-warning'}">${esc(enforcementMode)}</span></td>
+                    <td><small title="${esc(scope)}">${esc(truncate(scope, 80))}</small></td>
+                    <td>${esc(truncate(description, 80))}</td>
                 </tr>
             `;
         }).join('');
@@ -497,10 +512,10 @@ function populateRoleAssignments() {
     
     tbody.innerHTML = roles.map(role => `
         <tr>
-            <td><strong>${role.displayName || role.signInName || 'N/A'}</strong></td>
-            <td>${role.roleDefinitionName || 'N/A'}</td>
-            <td><small title="${role.scope || 'N/A'}">${truncate(role.scope, 80) || 'N/A'}</small></td>
-            <td>${role.objectType || 'N/A'}</td>
+            <td><strong>${esc(role.displayName || role.signInName || 'N/A')}</strong></td>
+            <td>${esc(role.roleDefinitionName || 'N/A')}</td>
+            <td><small title="${esc(role.scope || 'N/A')}">${esc(truncate(role.scope, 80) || 'N/A')}</small></td>
+            <td>${esc(role.objectType || 'N/A')}</td>
         </tr>
     `).join('');
 }
@@ -518,12 +533,12 @@ function populateNetworking() {
     } else {
         vnetsTbody.innerHTML = vnets.map(vnet => `
             <tr>
-                <td><strong>${vnet.name || 'N/A'}</strong></td>
-                <td>${vnet.resourceGroup || 'N/A'}</td>
-                <td>${vnet.location || 'N/A'}</td>
-                <td><code>${vnet.addressSpace ? vnet.addressSpace.join(', ') : 'N/A'}</code></td>
+                <td><strong>${esc(vnet.name || 'N/A')}</strong></td>
+                <td>${esc(vnet.resourceGroup || 'N/A')}</td>
+                <td>${esc(vnet.location || 'N/A')}</td>
+                <td><code>${esc(vnet.addressSpace ? vnet.addressSpace.join(', ') : 'N/A')}</code></td>
                 <td>${vnet.subnets ? vnet.subnets.length : 0} subnets</td>
-                <td><small>${vnet.subscription || 'N/A'}</small></td>
+                <td><small>${esc(vnet.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -537,15 +552,15 @@ function populateNetworking() {
     } else {
         peerTbody.innerHTML = peerings.map((peer, idx) => `
             <tr onclick="showResourceDetails('peering', ${idx})" data-type="peering" data-index="${idx}">
-                <td><strong>${peer.name || 'N/A'}</strong></td>
-                <td>${peer.sourceVNet || 'N/A'}</td>
-                <td>${peer.remoteVNet || 'N/A'}</td>
-                <td><span class="status-badge ${peer.peeringState === 'Connected' ? 'status-connected' : 'status-disconnected'}">${peer.peeringState || 'Unknown'}</span></td>
+                <td><strong>${esc(peer.name || 'N/A')}</strong></td>
+                <td>${esc(peer.sourceVNet || 'N/A')}</td>
+                <td>${esc(peer.remoteVNet || 'N/A')}</td>
+                <td><span class="status-badge ${peer.peeringState === 'Connected' ? 'status-connected' : 'status-disconnected'}">${esc(peer.peeringState || 'Unknown')}</span></td>
                 <td>${peer.allowVirtualNetworkAccess ? '✓' : '✗'}</td>
                 <td>${peer.allowForwardedTraffic ? '✓' : '✗'}</td>
                 <td>${peer.allowGatewayTransit ? '✓' : '✗'}</td>
                 <td>${peer.useRemoteGateways ? '✓' : '✗'}</td>
-                <td>${peer.provisioningState || 'N/A'}</td>
+                <td>${esc(peer.provisioningState || 'N/A')}</td>
             </tr>
         `).join('');
     }
@@ -559,12 +574,12 @@ function populateNetworking() {
     } else {
         vpnTbody.innerHTML = vpns.map(vpn => `
             <tr>
-                <td><strong>${vpn.name || 'N/A'}</strong></td>
-                <td>${vpn.resourceGroup || 'N/A'}</td>
-                <td>${vpn.location || 'N/A'}</td>
-                <td>${vpn.gatewayType || 'N/A'}</td>
-                <td>${vpn.sku || 'N/A'}</td>
-                <td><small>${vpn.subscription || 'N/A'}</small></td>
+                <td><strong>${esc(vpn.name || 'N/A')}</strong></td>
+                <td>${esc(vpn.resourceGroup || 'N/A')}</td>
+                <td>${esc(vpn.location || 'N/A')}</td>
+                <td>${esc(vpn.gatewayType || 'N/A')}</td>
+                <td>${esc(vpn.sku || 'N/A')}</td>
+                <td><small>${esc(vpn.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -578,13 +593,13 @@ function populateNetworking() {
     } else {
         vwanTbody.innerHTML = vwans.map(vwan => `
             <tr>
-                <td><strong>${vwan.name || 'N/A'}</strong></td>
-                <td>${vwan.resourceGroup || 'N/A'}</td>
-                <td>${vwan.location || 'N/A'}</td>
+                <td><strong>${esc(vwan.name || 'N/A')}</strong></td>
+                <td>${esc(vwan.resourceGroup || 'N/A')}</td>
+                <td>${esc(vwan.location || 'N/A')}</td>
                 <td>${vwan.virtualHubCount || 0} hubs</td>
                 <td>${vwan.allowBranchToBranchTraffic ? '✓' : '✗'}</td>
                 <td>${vwan.allowVnetToVnetTraffic ? '✓' : '✗'}</td>
-                <td><small>${vwan.subscription || 'N/A'}</small></td>
+                <td><small>${esc(vwan.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -604,7 +619,7 @@ function populateNetworking() {
         fwTbody.innerHTML = firewalls.map(fw => {
             let policyRulesInfo = '';
             if (fw.usingPolicy && fw.firewallPolicyName) {
-                policyRulesInfo = `Policy: ${fw.firewallPolicyName}`;
+                policyRulesInfo = `Policy: ${esc(fw.firewallPolicyName)}`;
             } else {
                 policyRulesInfo = `Classic Rules: ${fw.totalClassicRules || 0}`;
             }
@@ -615,14 +630,14 @@ function populateNetworking() {
             
             return `
                 <tr>
-                    <td><strong>${fw.name || 'N/A'}</strong></td>
-                    <td>${fw.resourceGroup || 'N/A'}</td>
-                    <td>${fw.location || 'N/A'}</td>
-                    <td>${fw.tier || 'N/A'}</td>
+                    <td><strong>${esc(fw.name || 'N/A')}</strong></td>
+                    <td>${esc(fw.resourceGroup || 'N/A')}</td>
+                    <td>${esc(fw.location || 'N/A')}</td>
+                    <td>${esc(fw.tier || 'N/A')}</td>
                     <td>${policyRulesInfo}</td>
                     <td>${ruleCollectionsInfo}</td>
-                    <td>${fw.threatIntelMode || 'N/A'}</td>
-                    <td><small>${fw.subscription || 'N/A'}</small></td>
+                    <td>${esc(fw.threatIntelMode || 'N/A')}</td>
+                    <td><small>${esc(fw.subscription || 'N/A')}</small></td>
                 </tr>
             `;
         }).join('');
@@ -637,16 +652,16 @@ function populateNetworking() {
     } else {
         fwPolicyTbody.innerHTML = firewallPolicies.map(policy => `
             <tr>
-                <td><strong>${policy.name || 'N/A'}</strong></td>
-                <td>${policy.resourceGroup || 'N/A'}</td>
-                <td>${policy.location || 'N/A'}</td>
-                <td>${policy.tier || 'N/A'}</td>
+                <td><strong>${esc(policy.name || 'N/A')}</strong></td>
+                <td>${esc(policy.resourceGroup || 'N/A')}</td>
+                <td>${esc(policy.location || 'N/A')}</td>
+                <td>${esc(policy.tier || 'N/A')}</td>
                 <td><strong>${policy.totalRules || 0}</strong></td>
                 <td>${policy.applicationRuleCollections || 0}</td>
                 <td>${policy.networkRuleCollections || 0}</td>
                 <td>${policy.natRuleCollections || 0}</td>
-                <td>${policy.intrusionDetection || 'Off'}</td>
-                <td><small>${policy.subscription || 'N/A'}</small></td>
+                <td>${esc(policy.intrusionDetection || 'Off')}</td>
+                <td><small>${esc(policy.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -679,7 +694,7 @@ function populateNetworking() {
                 if (groups.length === 0) {
                     return `
                         <div style="margin-bottom:2rem;">
-                            <h4 style="margin-bottom:0.5rem;">${policy.name} <small style="font-weight:normal;color:#888;">(${policy.subscription || ''})</small></h4>
+                            <h4 style="margin-bottom:0.5rem;">${esc(policy.name)} <small style="font-weight:normal;color:#888;">(${esc(policy.subscription || '')})</small></h4>
                             <p style="color:#888;">No rule collection groups found for this policy.</p>
                         </div>`;
                 }
@@ -689,7 +704,7 @@ function populateNetworking() {
                         const rules = rc.rules || [];
                         const typeLabel = rc.ruleCollectionType === 'FirewallPolicyNatRuleCollection'
                             ? 'NAT'
-                            : (rules[0]?.ruleType === 'ApplicationRule' ? 'App' : 'Network');
+                            : ((rules[0] && rules[0].ruleType === 'ApplicationRule') ? 'App' : 'Network');
 
                         const rulesHtml = rules.length === 0
                             ? `<tr><td colspan="6" style="color:#888;">No rules defined</td></tr>`
@@ -722,21 +737,21 @@ function populateNetworking() {
 
                                 return `
                                     <tr>
-                                        <td>${rule.name || 'N/A'}</td>
-                                        <td><span class="badge badge-info">${rule.ruleType || ''}</span></td>
-                                        <td><code>${src}</code></td>
-                                        <td><code>${dst}</code></td>
-                                        <td>${extra}</td>
-                                        <td>${rule.description || ''}</td>
+                                        <td>${esc(rule.name || 'N/A')}</td>
+                                        <td><span class="badge badge-info">${esc(rule.ruleType || '')}</span></td>
+                                        <td><code>${esc(src)}</code></td>
+                                        <td><code>${esc(dst)}</code></td>
+                                        <td>${esc(extra)}</td>
+                                        <td>${esc(rule.description || '')}</td>
                                     </tr>`;
                             }).join('');
 
                         return `
                             <div style="margin-bottom:1rem; padding-left:1rem; border-left:3px solid #e0e0e0;">
                                 <div style="font-weight:600; margin-bottom:0.4rem;">
-                                    ${rc.name || 'Unnamed collection'}
+                                    ${esc(rc.name || 'Unnamed collection')}
                                     &nbsp;<span class="badge badge-info">${typeLabel}</span>
-                                    &nbsp;<span style="color:#888;font-size:0.85em;">Priority: ${rc.priority ?? 'N/A'} &mdash; Action: ${rc.action || 'N/A'}</span>
+                                    &nbsp;<span style="color:#888;font-size:0.85em;">Priority: ${esc(rc.priority !== null && rc.priority !== undefined ? rc.priority : 'N/A')} &mdash; Action: ${esc(rc.action || 'N/A')}</span>
                                 </div>
                                 <div class="data-table-container" style="margin:0;">
                                     <table class="data-table" style="font-size:0.85em;">
@@ -753,8 +768,8 @@ function populateNetworking() {
                     return `
                         <div style="margin-bottom:1.5rem; padding:1rem; background:#fafafa; border-radius:6px; border:1px solid #e8e8e8;">
                             <div style="font-weight:700; margin-bottom:0.75rem;">
-                                Rule Collection Group: ${rcg.name || 'Unnamed'}
-                                <span style="color:#888;font-size:0.85em; font-weight:normal;">&mdash; Priority: ${rcg.priority ?? 'N/A'}</span>
+                                Rule Collection Group: ${esc(rcg.name || 'Unnamed')}
+                                <span style="color:#888;font-size:0.85em; font-weight:normal;">&mdash; Priority: ${esc(rcg.priority !== null && rcg.priority !== undefined ? rcg.priority : 'N/A')}</span>
                             </div>
                             ${collectionsHtml || '<p style="color:#888;">No rule collections.</p>'}
                         </div>`;
@@ -763,8 +778,8 @@ function populateNetworking() {
                 return `
                     <div style="margin-bottom:2.5rem;">
                         <h4 style="margin-bottom:0.75rem; border-bottom:1px solid #ddd; padding-bottom:0.4rem;">
-                            ${policy.name}
-                            <small style="font-weight:normal; color:#888; font-size:0.8em;">&nbsp;${policy.subscription || ''} &mdash; ${policy.tier || ''}</small>
+                            ${esc(policy.name)}
+                            <small style="font-weight:normal; color:#888; font-size:0.8em;">&nbsp;${esc(policy.subscription || '')} &mdash; ${esc(policy.tier || '')}</small>
                         </h4>
                         ${groupsHtml}
                     </div>`;
@@ -783,11 +798,11 @@ function populateNetworking() {
     } else {
         nsgTbody.innerHTML = nsgs.map(nsg => `
             <tr>
-                <td><strong>${nsg.name || 'N/A'}</strong></td>
-                <td>${nsg.resourceGroup || 'N/A'}</td>
-                <td>${nsg.location || 'N/A'}</td>
+                <td><strong>${esc(nsg.name || 'N/A')}</strong></td>
+                <td>${esc(nsg.resourceGroup || 'N/A')}</td>
+                <td>${esc(nsg.location || 'N/A')}</td>
                 <td>${nsg.securityRulesCount || 0} rules</td>
-                <td><small>${nsg.subscription || 'N/A'}</small></td>
+                <td><small>${esc(nsg.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -801,12 +816,12 @@ function populateNetworking() {
     } else {
         privateDnsZonesTbody.innerHTML = privateDnsZones.map(zone => `
             <tr>
-                <td><strong>${zone.name || 'N/A'}</strong></td>
-                <td>${zone.resourceGroup || 'N/A'}</td>
-                <td>${zone.location || 'N/A'}</td>
+                <td><strong>${esc(zone.name || 'N/A')}</strong></td>
+                <td>${esc(zone.resourceGroup || 'N/A')}</td>
+                <td>${esc(zone.location || 'N/A')}</td>
                 <td>${zone.numberOfRecordSets || 0}</td>
                 <td>${zone.numberOfVirtualNetworkLinks || 0}</td>
-                <td><small>${zone.subscription || 'N/A'}</small></td>
+                <td><small>${esc(zone.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -820,14 +835,14 @@ function populateNetworking() {
     } else {
         privateEndpointsTbody.innerHTML = privateEndpoints.map(pe => `
             <tr>
-                <td><strong>${pe.name || 'N/A'}</strong></td>
-                <td>${pe.resourceGroup || 'N/A'}</td>
-                <td>${pe.location || 'N/A'}</td>
-                <td>${pe.vnet || 'N/A'}</td>
-                <td>${pe.subnet || 'N/A'}</td>
-                <td><code>${pe.privateIPs && pe.privateIPs.length > 0 ? pe.privateIPs.join(', ') : 'N/A'}</code></td>
-                <td>${pe.connectedResource || 'N/A'}</td>
-                <td><small>${pe.subscription || 'N/A'}</small></td>
+                <td><strong>${esc(pe.name || 'N/A')}</strong></td>
+                <td>${esc(pe.resourceGroup || 'N/A')}</td>
+                <td>${esc(pe.location || 'N/A')}</td>
+                <td>${esc(pe.vnet || 'N/A')}</td>
+                <td>${esc(pe.subnet || 'N/A')}</td>
+                <td><code>${esc(pe.privateIPs && pe.privateIPs.length > 0 ? pe.privateIPs.join(', ') : 'N/A')}</code></td>
+                <td>${esc(pe.connectedResource || 'N/A')}</td>
+                <td><small>${esc(pe.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -846,11 +861,11 @@ function populateGovernance() {
     } else {
         budgetTbody.innerHTML = budgets.map(budget => `
             <tr>
-                <td><strong>${budget.name || 'N/A'}</strong></td>
-                <td>$${budget.amount || 0}</td>
-                <td>${budget.timeGrain || 'N/A'}</td>
-                <td>$${budget.currentSpend || 0}</td>
-                <td><small>${budget.subscription || 'N/A'}</small></td>
+                <td><strong>${esc(budget.name || 'N/A')}</strong></td>
+                <td>$${esc(budget.amount || 0)}</td>
+                <td>${esc(budget.timeGrain || 'N/A')}</td>
+                <td>$${esc(budget.currentSpend || 0)}</td>
+                <td><small>${esc(budget.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -864,11 +879,11 @@ function populateGovernance() {
     } else {
         lockTbody.innerHTML = locks.map(lock => `
             <tr>
-                <td><strong>${lock.name || 'N/A'}</strong></td>
-                <td>${lock.resourceName || 'N/A'}</td>
-                <td><span class="badge ${lock.level === 'CanNotDelete' ? 'badge-danger' : 'badge-warning'}">${lock.level || 'N/A'}</span></td>
-                <td>${lock.notes || 'No notes'}</td>
-                <td><small>${lock.subscription || 'N/A'}</small></td>
+                <td><strong>${esc(lock.name || 'N/A')}</strong></td>
+                <td>${esc(lock.resourceName || 'N/A')}</td>
+                <td><span class="badge ${lock.level === 'CanNotDelete' ? 'badge-danger' : 'badge-warning'}">${esc(lock.level || 'N/A')}</span></td>
+                <td>${esc(lock.notes || 'No notes')}</td>
+                <td><small>${esc(lock.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
@@ -882,9 +897,9 @@ function populateGovernance() {
     } else {
         tagsContainer.innerHTML = Object.keys(tags).map(key => `
             <div class="tag-group">
-                <div class="tag-key">${key}</div>
+                <div class="tag-key">${esc(key)}</div>
                 <div class="tag-values">
-                    ${tags[key].map(value => `<span class="tag-value">${value}</span>`).join('')}
+                    ${tags[key].map(value => `<span class="tag-value">${esc(value)}</span>`).join('')}
                 </div>
             </div>
         `).join('');
@@ -964,7 +979,7 @@ function populateBestPractices() {
     if (bp.recommendations && bp.recommendations.length > 0) {
         document.getElementById('bpRecommendations').style.display = 'block';
         const list = document.getElementById('recommendationsList');
-        list.innerHTML = bp.recommendations.map(rec => `<li>${rec}</li>`).join('');
+        list.innerHTML = bp.recommendations.map(rec => `<li>${esc(rec)}</li>`).join('');
     } else {
         document.getElementById('bpRecommendations').style.display = 'none';
     }
@@ -2208,7 +2223,7 @@ function formatTags(tags) {
         return '<em>No tags</em>';
     }
     return Object.entries(tags)
-        .map(([key, value]) => `<span class="tag-value">${key}: ${value}</span>`)
+        .map(([key, value]) => `<span class="tag-value">${esc(key)}: ${esc(value)}</span>`)
         .join(' ');
 }
 
@@ -2232,16 +2247,16 @@ function populateVirtualMachines() {
                                vm.powerState === 'deallocated' ? 'status-deallocated' : 'status-stopped';
         return `
             <tr onclick="showResourceDetails('vm', ${idx})" data-type="vm" data-index="${idx}">
-                <td><strong>${vm.name || 'N/A'}</strong></td>
-                <td>${vm.vmSize || 'N/A'}</td>
-                <td>${vm.osType || 'N/A'}</td>
-                <td><span class="status-badge ${powerStateClass}">${vm.powerState || 'Unknown'}</span></td>
-                <td>${vm.vnet || '<em>None</em>'}</td>
-                <td>${vm.subnet || '<em>None</em>'}</td>
-                <td><code>${vm.privateIPs && vm.privateIPs.length > 0 ? vm.privateIPs.join(', ') : 'None'}</code></td>
-                <td>${vm.publicIPs && vm.publicIPs.length > 0 ? vm.publicIPs.join(', ') : '<em>None</em>'}</td>
-                <td>${vm.location || 'N/A'}</td>
-                <td><small>${vm.subscription || 'N/A'}</small></td>
+                <td><strong>${esc(vm.name || 'N/A')}</strong></td>
+                <td>${esc(vm.vmSize || 'N/A')}</td>
+                <td>${esc(vm.osType || 'N/A')}</td>
+                <td><span class="status-badge ${powerStateClass}">${esc(vm.powerState || 'Unknown')}</span></td>
+                <td>${vm.vnet ? esc(vm.vnet) : '<em>None</em>'}</td>
+                <td>${vm.subnet ? esc(vm.subnet) : '<em>None</em>'}</td>
+                <td><code>${esc(vm.privateIPs && vm.privateIPs.length > 0 ? vm.privateIPs.join(', ') : 'None')}</code></td>
+                <td>${vm.publicIPs && vm.publicIPs.length > 0 ? esc(vm.publicIPs.join(', ')) : '<em>None</em>'}</td>
+                <td>${esc(vm.location || 'N/A')}</td>
+                <td><small>${esc(vm.subscription || 'N/A')}</small></td>
             </tr>
         `;
     }).join('');
@@ -2413,26 +2428,26 @@ function showResourceDetails(type, index) {
             html = `
                 <div class="detail-section">
                     <div class="detail-label">Resource Group</div>
-                    <div class="detail-value">${resource.resourceGroup || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.resourceGroup || 'N/A')}</div>
                     
                     <div class="detail-label">Location</div>
-                    <div class="detail-value">${resource.location || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.location || 'N/A')}</div>
                     
                     <div class="detail-label">Address Space</div>
-                    <div class="detail-value"><code>${resource.addressSpace ? resource.addressSpace.join(', ') : 'N/A'}</code></div>
+                    <div class="detail-value"><code>${esc(resource.addressSpace ? resource.addressSpace.join(', ') : 'N/A')}</code></div>
                     
                     <div class="detail-label">Subnets</div>
                     <div class="detail-value">
                         ${resource.subnets && resource.subnets.length > 0 ? 
-                            resource.subnets.map(s => `• ${s.name}: <code>${s.addressPrefix}</code>`).join('<br>') : 
+                            resource.subnets.map(s => `• ${esc(s.name)}: <code>${esc(s.addressPrefix)}</code>`).join('<br>') : 
                             'No subnets'}
                     </div>
                     
                     <div class="detail-label">DNS Servers</div>
-                    <div class="detail-value">${resource.dnsServers && resource.dnsServers.length > 0 ? resource.dnsServers.join(', ') : 'Default (Azure provided)'}</div>
+                    <div class="detail-value">${esc(resource.dnsServers && resource.dnsServers.length > 0 ? resource.dnsServers.join(', ') : 'Default (Azure provided)')}</div>
                     
                     <div class="detail-label">Subscription</div>
-                    <div class="detail-value">${resource.subscription || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.subscription || 'N/A')}</div>
                 </div>
                 
                 <div class="detail-section">
@@ -2444,14 +2459,14 @@ function showResourceDetails(type, index) {
             const vms = (inventoryData.compute && inventoryData.compute.virtualMachines) || [];
             const connectedVMs = vms.filter(vm => vm.vnet === resource.name);
             connectedVMs.forEach(vm => {
-                html += `<li onclick="showResourceDetails('vm', ${vms.indexOf(vm)})">💻 ${vm.name} (${vm.subnet || 'unknown subnet'})</li>`;
+                html += `<li onclick="showResourceDetails('vm', ${vms.indexOf(vm)})">💻 ${esc(vm.name)} (${esc(vm.subnet || 'unknown subnet')})</li>`;
             });
             
             // Find peerings
             const peerings = (inventoryData.networking && inventoryData.networking.peerings) || [];
             const connectedPeerings = peerings.filter(p => p.sourceVNet === resource.name || p.remoteVNet === resource.name);
             connectedPeerings.forEach(peer => {
-                html += `<li onclick="showResourceDetails('peering', ${peerings.indexOf(peer)})">🔗 Peering to ${peer.sourceVNet === resource.name ? peer.remoteVNet : peer.sourceVNet}</li>`;
+                html += `<li onclick="showResourceDetails('peering', ${peerings.indexOf(peer)})">🔗 Peering to ${esc(peer.sourceVNet === resource.name ? peer.remoteVNet : peer.sourceVNet)}</li>`;
             });
             
             if (connectedVMs.length === 0 && connectedPeerings.length === 0) {
@@ -2472,16 +2487,16 @@ function showResourceDetails(type, index) {
             html = `
                 <div class="detail-section">
                     <div class="detail-label">Source VNet</div>
-                    <div class="detail-value">${resource.sourceVNet || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.sourceVNet || 'N/A')}</div>
                     
                     <div class="detail-label">Remote VNet</div>
-                    <div class="detail-value">${resource.remoteVNet || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.remoteVNet || 'N/A')}</div>
                     
                     <div class="detail-label">Peering State</div>
-                    <div class="detail-value"><span class="status-badge status-${resource.peeringState === 'Connected' ? 'connected' : 'disconnected'}">${resource.peeringState || 'Unknown'}</span></div>
+                    <div class="detail-value"><span class="status-badge status-${resource.peeringState === 'Connected' ? 'connected' : 'disconnected'}">${esc(resource.peeringState || 'Unknown')}</span></div>
                     
                     <div class="detail-label">Provisioning State</div>
-                    <div class="detail-value">${resource.provisioningState || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.provisioningState || 'N/A')}</div>
                     
                     <div class="detail-label">Allow Virtual Network Access</div>
                     <div class="detail-value">${resource.allowVirtualNetworkAccess ? '✓ Yes' : '✗ No'}</div>
@@ -2496,13 +2511,13 @@ function showResourceDetails(type, index) {
                     <div class="detail-value">${resource.useRemoteGateways ? '✓ Yes' : '✗ No'}</div>
                     
                     <div class="detail-label">Remote Address Space</div>
-                    <div class="detail-value"><code>${resource.remoteAddressSpace ? resource.remoteAddressSpace.join(', ') : 'N/A'}</code></div>
+                    <div class="detail-value"><code>${esc(resource.remoteAddressSpace ? resource.remoteAddressSpace.join(', ') : 'N/A')}</code></div>
                     
                     <div class="detail-label">Resource Group</div>
-                    <div class="detail-value">${resource.sourceResourceGroup || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.sourceResourceGroup || 'N/A')}</div>
                     
                     <div class="detail-label">Subscription</div>
-                    <div class="detail-value">${resource.subscription || 'N/A'}</div>
+                    <div class="detail-value">${esc(resource.subscription || 'N/A')}</div>
                 </div>
                 
                 <div class="detail-section">
@@ -2515,10 +2530,10 @@ function showResourceDetails(type, index) {
             const remoteIdx = vnets.findIndex(v => v.name === resource.remoteVNet);
             
             if (sourceIdx >= 0) {
-                html += `<li onclick="showResourceDetails('vnet', ${sourceIdx})">🌐 ${resource.sourceVNet} (Source)</li>`;
+                html += `<li onclick="showResourceDetails('vnet', ${sourceIdx})">🌐 ${esc(resource.sourceVNet)} (Source)</li>`;
             }
             if (remoteIdx >= 0) {
-                html += `<li onclick="showResourceDetails('vnet', ${remoteIdx})">🌐 ${resource.remoteVNet} (Remote)</li>`;
+                html += `<li onclick="showResourceDetails('vnet', ${remoteIdx})">🌐 ${esc(resource.remoteVNet)} (Remote)</li>`;
             }
             
             html += '</ul></div>';
@@ -2553,33 +2568,33 @@ function showVMDetailsModal(index) {
                 <h3>💻 Basic Information</h3>
                 <div class="detail-row">
                     <span class="detail-label">Name:</span>
-                    <span class="detail-value"><strong>${vm.name || 'N/A'}</strong></span>
+                    <span class="detail-value"><strong>${esc(vm.name || 'N/A')}</strong></span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Resource Group:</span>
-                    <span class="detail-value">${vm.resourceGroup || 'N/A'}</span>
+                    <span class="detail-value">${esc(vm.resourceGroup || 'N/A')}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">VM Size:</span>
-                    <span class="detail-value"><code>${vm.vmSize || 'N/A'}</code></span>
+                    <span class="detail-value"><code>${esc(vm.vmSize || 'N/A')}</code></span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Operating System:</span>
-                    <span class="detail-value">${vm.osType || 'N/A'}</span>
+                    <span class="detail-value">${esc(vm.osType || 'N/A')}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Power State:</span>
                     <span class="detail-value">
-                        <span class="status-badge status-${vm.powerState || 'unknown'}">${vm.powerState || 'Unknown'}</span>
+                        <span class="status-badge status-${esc(vm.powerState || 'unknown')}">${esc(vm.powerState || 'Unknown')}</span>
                     </span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Location:</span>
-                    <span class="detail-value">${vm.location || 'N/A'}</span>
+                    <span class="detail-value">${esc(vm.location || 'N/A')}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Subscription:</span>
-                    <span class="detail-value"><small>${vm.subscription || 'N/A'}</small></span>
+                    <span class="detail-value"><small>${esc(vm.subscription || 'N/A')}</small></span>
                 </div>
             </div>
             
@@ -2595,7 +2610,7 @@ function showVMDetailsModal(index) {
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Availability Set:</span>
-                    <span class="detail-value">${vm.availabilitySet || '<em>None</em>'}</span>
+                    <span class="detail-value">${vm.availabilitySet ? esc(vm.availabilitySet) : '<em>None</em>'}</span>
                 </div>
             </div>
             
@@ -2603,23 +2618,23 @@ function showVMDetailsModal(index) {
                 <h3>🌐 Networking</h3>
                 <div class="detail-row">
                     <span class="detail-label">Virtual Network:</span>
-                    <span class="detail-value">${vm.vnet || '<em>None</em>'}</span>
+                    <span class="detail-value">${vm.vnet ? esc(vm.vnet) : '<em>None</em>'}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Subnet:</span>
-                    <span class="detail-value">${vm.subnet || '<em>None</em>'}</span>
+                    <span class="detail-value">${vm.subnet ? esc(vm.subnet) : '<em>None</em>'}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Private IP(s):</span>
-                    <span class="detail-value"><code>${vm.privateIPs && vm.privateIPs.length > 0 ? vm.privateIPs.join(', ') : 'None'}</code></span>
+                    <span class="detail-value"><code>${esc(vm.privateIPs && vm.privateIPs.length > 0 ? vm.privateIPs.join(', ') : 'None')}</code></span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Public IP(s):</span>
-                    <span class="detail-value">${vm.publicIPs && vm.publicIPs.length > 0 ? vm.publicIPs.join(', ') : '<em>None</em>'}</span>
+                    <span class="detail-value">${vm.publicIPs && vm.publicIPs.length > 0 ? esc(vm.publicIPs.join(', ')) : '<em>None</em>'}</span>
                 </div>
                 <div class="detail-row">
                     <span class="detail-label">Network Interfaces:</span>
-                    <span class="detail-value"><small>${vm.networkInterfaces && vm.networkInterfaces.length > 0 ? vm.networkInterfaces.join(', ') : 'None'}</small></span>
+                    <span class="detail-value"><small>${esc(vm.networkInterfaces && vm.networkInterfaces.length > 0 ? vm.networkInterfaces.join(', ') : 'None')}</small></span>
                 </div>
             </div>
     `;
@@ -2635,8 +2650,8 @@ function showVMDetailsModal(index) {
         for (const [key, value] of Object.entries(vm.tags)) {
             html += `
                 <div class="tag-item">
-                    <span class="tag-key">${key}:</span>
-                    <span class="tag-value">${value || '<em>empty</em>'}</span>
+                    <span class="tag-key">${esc(key)}:</span>
+                    <span class="tag-value">${value ? esc(value) : '<em>empty</em>'}</span>
                 </div>
             `;
         }
@@ -2689,24 +2704,47 @@ async function loadWAFConfig() {
     }
 }
 
+// --- Safe WAF condition evaluation (no eval) --------------------------------
+// Grammar: <token> <op> <token> joined by AND / OR (AND binds tighter than OR).
+// Tokens are metric names, numbers, or true/false. Operators: >= <= == != > <
+
+function resolveConditionToken(token, metrics) {
+    token = token.trim();
+    if (Object.prototype.hasOwnProperty.call(metrics, token)) {
+        const value = metrics[token];
+        return (value === null || value === undefined) ? 0 : value;
+    }
+    if (token === 'true') return true;
+    if (token === 'false') return false;
+    const num = Number(token);
+    if (token !== '' && !Number.isNaN(num)) return num;
+    throw new Error(`Unknown token '${token}' in WAF condition`);
+}
+
+function evaluateComparison(expression, metrics) {
+    const match = expression.match(/^\s*([\w.]+)\s*(>=|<=|==|!=|>|<)\s*([\w.]+)\s*$/);
+    if (match) {
+        const left = resolveConditionToken(match[1], metrics);
+        const right = resolveConditionToken(match[3], metrics);
+        switch (match[2]) {
+            case '>=': return Number(left) >= Number(right);
+            case '<=': return Number(left) <= Number(right);
+            case '==': return left === right || Number(left) === Number(right);
+            case '!=': return !(left === right || Number(left) === Number(right));
+            case '>':  return Number(left) > Number(right);
+            case '<':  return Number(left) < Number(right);
+        }
+    }
+    // Bare token — treat as a boolean metric
+    return Boolean(resolveConditionToken(expression, metrics));
+}
+
 // Evaluate a single WAF check condition
 function evaluateWAFCondition(condition, metrics) {
     try {
-        // Replace metric names with actual values
-        let evalExpression = condition;
-        
-        for (const [key, value] of Object.entries(metrics)) {
-            const regex = new RegExp(`\\b${key}\\b`, 'g');
-            const safeValue = (value === true || value === false) ? value : (value !== null && value !== undefined ? value : 0);
-            evalExpression = evalExpression.replace(regex, safeValue);
-        }
-        
-        // Convert logical operators to JavaScript syntax
-        evalExpression = evalExpression.replace(/\bAND\b/gi, '&&');
-        evalExpression = evalExpression.replace(/\bOR\b/gi, '||');
-        
-        // Evaluate the expression
-        return eval(evalExpression);
+        return condition.split(/\bOR\b/i).some(orPart =>
+            orPart.split(/\bAND\b/i).every(andPart => evaluateComparison(andPart, metrics))
+        );
     } catch (error) {
         console.error('Error evaluating WAF condition:', condition, error);
         return false;
@@ -2827,12 +2865,12 @@ function displayScoringConfiguration(config) {
         html += `
             <div class="scoring-category" style="margin-bottom: 30px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #fafafa;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                    <h4 style="margin: 0; color: #0078d4;">${category.name}</h4>
+                    <h4 style="margin: 0; color: #0078d4;">${esc(category.name)}</h4>
                     <span style="background: #0078d4; color: white; padding: 4px 12px; border-radius: 12px; font-weight: bold;">
                         Max Score: ${categoryMaxScore}
                     </span>
                 </div>
-                <p style="color: #666; margin-bottom: 15px; font-style: italic;">${category.description}</p>
+                <p style="color: #666; margin-bottom: 15px; font-style: italic;">${esc(category.description)}</p>
                 
                 <div class="rules-list" style="margin-left: 10px;">
         `;
@@ -2844,18 +2882,18 @@ function displayScoringConfiguration(config) {
                 <div class="rule-item" style="margin-bottom: 20px; padding: 15px; background: white; border-left: 4px solid #0078d4; border-radius: 4px;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
                         <div style="flex: 1;">
-                            <strong style="color: #333;">${rule.id}: ${rule.name}</strong>
-                            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${rule.description}</p>
+                            <strong style="color: #333;">${esc(rule.id)}: ${esc(rule.name)}</strong>
+                            <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${esc(rule.description)}</p>
                         </div>
                         <span style="background: #10b981; color: white; padding: 4px 10px; border-radius: 8px; font-weight: bold; white-space: nowrap; margin-left: 10px;">
-                            +${rule.points} pts
+                            +${esc(rule.points)} pts
                         </span>
                     </div>
                     
                     <div style="background: #f0f8ff; padding: 10px; border-radius: 4px; margin-top: 10px;">
                         <strong style="color: #0078d4; font-size: 13px;">Condition:</strong>
                         <code style="display: block; margin-top: 5px; padding: 8px; background: white; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; color: #d63384;">
-                            ${rule.condition}
+                            ${esc(rule.condition)}
                         </code>
                     </div>
                     
@@ -2863,17 +2901,17 @@ function displayScoringConfiguration(config) {
                         <div style="background: #fff9e6; padding: 10px; border-radius: 4px; margin-top: 8px; border-left: 3px solid #ffc107;">
                             <strong style="color: #856404; font-size: 13px;">⚠️ Partial Points Available:</strong>
                             <p style="margin: 5px 0 5px 0; font-size: 13px; color: #666;">
-                                If main condition not met, awards <strong>+${rule.partialPoints.points} pts</strong> when:
+                                If main condition not met, awards <strong>+${esc(rule.partialPoints.points)} pts</strong> when:
                             </p>
                             <code style="display: block; padding: 6px; background: white; border: 1px solid #ddd; border-radius: 4px; font-size: 12px; color: #d63384;">
-                                ${rule.partialPoints.condition}
+                                ${esc(rule.partialPoints.condition)}
                             </code>
                         </div>
                     ` : ''}
                     
                     <div style="margin-top: 10px; padding: 10px; background: #fff3cd; border-left: 3px solid #ffc107; border-radius: 4px;">
                         <strong style="color: #856404; font-size: 13px;">💡 Recommendation:</strong>
-                        <p style="margin: 5px 0 0 0; color: #666; font-size: 13px;">${rule.recommendation}</p>
+                        <p style="margin: 5px 0 0 0; color: #666; font-size: 13px;">${esc(rule.recommendation)}</p>
                     </div>
                 </div>
             `;
@@ -2921,10 +2959,10 @@ function displayScoringThresholds(thresholds) {
             
             html += `
                 <tr>
-                    <td><strong style="color: ${statusColor};">${threshold.label}</strong></td>
-                    <td style="font-size: 20px; text-align: center;">${threshold.icon}</td>
-                    <td><span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 8px; font-weight: bold;">≥ ${threshold.min}%</span></td>
-                    <td style="color: #666;">${threshold.message}</td>
+                    <td><strong style="color: ${statusColor};">${esc(threshold.label)}</strong></td>
+                    <td style="font-size: 20px; text-align: center;">${esc(threshold.icon)}</td>
+                    <td><span style="background: ${statusColor}; color: white; padding: 4px 12px; border-radius: 8px; font-weight: bold;">≥ ${esc(threshold.min)}%</span></td>
+                    <td style="color: #666;">${esc(threshold.message)}</td>
                 </tr>
             `;
         }
@@ -2995,8 +3033,8 @@ function displayWAFConfiguration(config) {
             <div class="scoring-category" style="margin-bottom: 30px; border: 1px solid #e0e0e0; border-radius: 8px; padding: 20px; background: #fafafa;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                     <div>
-                        <h4 style="margin: 0; color: #0078d4; font-size: 18px;">Pillar ${pillar.order}: ${pillar.name}</h4>
-                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${pillar.description}</p>
+                        <h4 style="margin: 0; color: #0078d4; font-size: 18px;">Pillar ${esc(pillar.order)}: ${esc(pillar.name)}</h4>
+                        <p style="margin: 5px 0 0 0; color: #666; font-size: 14px;">${esc(pillar.description)}</p>
                     </div>
                     <div style="text-align: right;">
                         <span style="background: #0078d4; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: bold;">
@@ -3007,7 +3045,7 @@ function displayWAFConfiguration(config) {
                 
                 <div style="background: white; border-radius: 6px; padding: 15px; margin-top: 15px;">
                     <div style="color: #666; font-size: 13px; margin-bottom: 10px;">
-                        <strong>Assessment:</strong> ${pillar.assessment}
+                        <strong>Assessment:</strong> ${esc(pillar.assessment)}
                     </div>
                     
                     <table class="data-table" style="margin-top: 10px;">
@@ -3025,21 +3063,21 @@ function displayWAFConfiguration(config) {
         (pillar.checks || []).forEach(check => {
             html += `
                 <tr>
-                    <td><code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${check.id}</code></td>
-                    <td><strong>${check.name}</strong><br><span style="color: #666; font-size: 12px;">${check.description}</span></td>
-                    <td><code style="font-size: 11px; color: #d63384;">${check.condition}</code></td>
-                    <td style="text-align: center;"><span style="background: #e7f3ff; padding: 4px 8px; border-radius: 8px; font-weight: bold;">${check.weight}</span></td>
+                    <td><code style="background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 11px;">${esc(check.id)}</code></td>
+                    <td><strong>${esc(check.name)}</strong><br><span style="color: #666; font-size: 12px;">${esc(check.description)}</span></td>
+                    <td><code style="font-size: 11px; color: #d63384;">${esc(check.condition)}</code></td>
+                    <td style="text-align: center;"><span style="background: #e7f3ff; padding: 4px 8px; border-radius: 8px; font-weight: bold;">${esc(check.weight)}</span></td>
                 </tr>
                 <tr>
                     <td colspan="4" style="background: #f9f9f9; padding: 10px; border-top: none;">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
                             <div>
                                 <span style="color: #10b981; font-weight: bold;">✓ Pass:</span> 
-                                <span style="color: #666; font-size: 12px;">${check.passMessage}</span>
+                                <span style="color: #666; font-size: 12px;">${esc(check.passMessage)}</span>
                             </div>
                             <div>
                                 <span style="color: #ef4444; font-weight: bold;">✗ Fail:</span> 
-                                <span style="color: #666; font-size: 12px;">${check.failMessage}</span>
+                                <span style="color: #666; font-size: 12px;">${esc(check.failMessage)}</span>
                             </div>
                         </div>
                     </td>

@@ -1,7 +1,7 @@
 @{
     # Module metadata
     RootModule        = 'documenter-azure-landingzone.psm1'
-    ModuleVersion     = '1.0.0'
+    ModuleVersion     = '1.1.0'
     GUID              = 'd3d0da85-9b23-4c31-9861-2cad60ef45f5'
     Author            = 'Alex ter Neuzen'
     CompanyName       = 'GetToTheCloud'
@@ -36,6 +36,7 @@
         'waf-config.json'
         'LICENSE'
         'README.md'
+        'changes.md'
         'start.sh'
         'start.cmd'
     )
@@ -65,6 +66,16 @@
             ProjectUri   = 'https://github.com/GetToThe-Cloud/documenter-azure-landingzone'
             IconUri      = ''
             ReleaseNotes = @'
+v1.1.0 (security hardening — see changes.md)
+  - Removed wildcard CORS header; API is now same-origin only
+  - CSRF protection: /api/auth/login and /api/inventory/refresh require POST + X-Requested-With header
+  - Az context file moved to ~/.documenter-azure-landingzone (0700/0600), deleted after use and on shutdown
+  - Replaced Invoke-Expression / eval() condition evaluation with a strict safe parser
+  - All Azure-derived values HTML-escaped in the dashboard (XSS fix)
+  - Subresource Integrity + Content-Security-Policy for CDN assets; X-Content-Type-Options: nosniff
+  - Az modules are no longer auto-updated (install-if-missing only; manual Update-Module advised)
+  - API errors return generic messages; details go to the server console only
+
 v1.0.0
   - Initial release of the Azure Landing Zone Inventory & Assessment Tool
   - Comprehensive inventory collection: management groups, subscriptions, policies, RBAC, networking
@@ -72,7 +83,7 @@ v1.0.0
   - WAF alignment scoring across 5 pillars (Reliability, Security, Cost, Operations, Performance)
   - Interactive local web dashboard with real-time data
   - Professional PDF export with tables, charts, and recommendations
-  - Automatic module management (auto-install and update required Az modules)
+  - Automatic module management (auto-install required Az modules)
   - Cross-subscription scanning across all accessible Azure subscriptions
   - Graceful Ctrl+C / server shutdown handling
 '@

@@ -41,7 +41,7 @@ $requiredModules = @(
     'Az.PolicyInsights'
 )
 
-function Update-RequiredModule {
+function Install-RequiredModule {
     param(
         [Parameter(Mandatory=$true)]
         [string]$ModuleName
@@ -51,25 +51,20 @@ function Update-RequiredModule {
         $installedModule = Get-Module -ListAvailable -Name $ModuleName | Sort-Object Version -Descending | Select-Object -First 1
         
         if (-not $installedModule) {
-            Write-Host "   ⬇️  Installing $ModuleName..." -ForegroundColor Yellow
-            Install-Module -Name $ModuleName -Force -Scope CurrentUser -AllowClobber -ErrorAction Stop
+            Write-Host "   ⬇️  Installing $ModuleName from PSGallery..." -ForegroundColor Yellow
+            Install-Module -Name $ModuleName -Repository PSGallery -Scope CurrentUser -Force -ErrorAction Stop
             $installedModule = Get-Module -ListAvailable -Name $ModuleName | Sort-Object Version -Descending | Select-Object -First 1
             Write-Host "   ✓ Installed $ModuleName v$($installedModule.Version)" -ForegroundColor Green
         } else {
-            # Check for updates
+            # Never auto-update at startup (supply-chain hardening) — only report if an update exists
+            Write-Host "   ✓ $ModuleName v$($installedModule.Version)" -ForegroundColor Green
             try {
-                $onlineModule = Find-Module -Name $ModuleName -ErrorAction Stop
-                
+                $onlineModule = Find-Module -Name $ModuleName -Repository PSGallery -ErrorAction Stop
                 if ($onlineModule.Version -gt $installedModule.Version) {
-                    Write-Host "   ⬆️  Updating $ModuleName from v$($installedModule.Version) to v$($onlineModule.Version)..." -ForegroundColor Yellow
-                    Update-Module -Name $ModuleName -Force -ErrorAction Stop
-                    Write-Host "   ✓ Updated $ModuleName to v$($onlineModule.Version)" -ForegroundColor Green
-                } else {
-                    Write-Host "   ✓ $ModuleName v$($installedModule.Version) (latest)" -ForegroundColor Green
+                    Write-Host "   ℹ️  Update available: v$($onlineModule.Version). Run 'Update-Module $ModuleName' to update manually." -ForegroundColor Gray
                 }
             } catch {
-                # If online check fails (e.g., no internet), just use installed version
-                Write-Host "   ✓ $ModuleName v$($installedModule.Version) (online check skipped)" -ForegroundColor Gray
+                # No internet or gallery unreachable — nothing to report
             }
         }
         
@@ -84,7 +79,7 @@ function Update-RequiredModule {
 
 $allModulesOk = $true
 foreach ($module in $requiredModules) {
-    if (-not (Update-RequiredModule -ModuleName $module)) {
+    if (-not (Install-RequiredModule -ModuleName $module)) {
         $allModulesOk = $false
     }
 }
@@ -112,6 +107,16 @@ function Test-AzureConnection {
     }
 }
 
+# Per-user application data directory (holds Azure context + progress files; never the shared temp dir)
+$script:AppDataDir = Join-Path $HOME '.documenter-azure-landingzone'
+if (-not (Test-Path $script:AppDataDir)) {
+    New-Item -ItemType Directory -Path $script:AppDataDir -Force | Out-Null
+}
+if (-not $IsWindows) {
+    # Restrict directory to the current user
+    chmod 700 $script:AppDataDir
+}
+
 # Global state
 $script:IsAuthenticated = Test-AzureConnection
 $script:InventoryData = @{}
@@ -119,7 +124,17 @@ $script:LastUpdate = $null
 $script:CollectionRunspace = $null
 $script:CollectionPipeline = $null
 $script:CollectionInProgress = $false
-$script:ProgressFilePath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-inventory-progress.json"
+$script:ProgressFilePath = Join-Path $script:AppDataDir "inventory-progress.json"
+$script:AzContextFilePath = Join-Path $script:AppDataDir "az-context.json"
+
+# Save the current Azure context (contains access tokens) with user-only permissions
+function Save-ServerAzContext {
+    Save-AzContext -Path $script:AzContextFilePath -Force | Out-Null
+    if (-not $IsWindows) {
+        chmod 600 $script:AzContextFilePath
+    }
+    return $script:AzContextFilePath
+}
 
 Write-Host "🔐 Azure Authentication Status: $(if ($script:IsAuthenticated) { 'Connected ✓' } else { 'Not Connected ✗' })" -ForegroundColor $(if ($script:IsAuthenticated) { 'Green' } else { 'Yellow' })
 
@@ -162,8 +177,21 @@ try {
         $content = ""
         $contentType = "text/html; charset=utf-8"
         
+        # CSRF guard: state-changing endpoints must be POSTed by the dashboard JS
+        # (cross-origin pages cannot set the X-Requested-With header without a CORS preflight)
+        if ($path -in @('/api/auth/login', '/api/inventory/refresh') -and
+            ($method -ne 'POST' -or $request.Headers['X-Requested-With'] -ne 'XMLHttpRequest')) {
+            $path = '/__forbidden__'
+        }
+        
         # Route handling
         switch -Regex ($path) {
+            '^/__forbidden__$' {
+                $response.StatusCode = 403
+                $content = @{ error = "Forbidden: this endpoint requires a POST request from the dashboard" } | ConvertTo-Json
+                $contentType = "application/json"
+            }
+            
             '^/$' {
                 # Serve main page
                 $indexPath = Join-Path $PSScriptRoot "index.html"
@@ -258,7 +286,8 @@ try {
                         managementGroupCount = $mgCount
                     } | ConvertTo-Json
                 } catch {
-                    $content = @{ success = $false; message = $_.Exception.Message } | ConvertTo-Json
+                    Write-Host "  ✗ Authentication failed: $($_.Exception.Message)" -ForegroundColor Red
+                    $content = @{ success = $false; message = "Authentication failed. See the server console for details." } | ConvertTo-Json
                 }
                 $contentType = "application/json"
             }
@@ -280,8 +309,7 @@ try {
                             if (Test-Path $script:ProgressFilePath) { Remove-Item $script:ProgressFilePath -Force -ErrorAction SilentlyContinue }
                             
                             # Save Azure context so the background runspace can authenticate
-                            $azContextPath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-az-context.json"
-                            Save-AzContext -Path $azContextPath -Force | Out-Null
+                            $azContextPath = Save-ServerAzContext
                             
                             $script:CollectionInProgress = $true
                             $script:CollectionRunspace = [runspacefactory]::CreateRunspace()
@@ -295,6 +323,8 @@ try {
                                 param($scriptPath, $ctxPath)
                                 Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights -ErrorAction Stop
                                 Import-AzContext -Path $ctxPath -ErrorAction Stop | Out-Null
+                                # Context imported — remove the token file as soon as it is no longer needed
+                                Remove-Item $ctxPath -Force -ErrorAction SilentlyContinue
                                 . $scriptPath
                                 $result = Get-AzureLandingZoneInventory
                                 return $result
@@ -305,7 +335,8 @@ try {
                             $content = @{ collecting = $true; message = "Collection started" } | ConvertTo-Json
                         } catch {
                             $script:CollectionInProgress = $false
-                            $content = @{ error = $_.Exception.Message } | ConvertTo-Json
+                            Write-Host "  ✗ Failed to start collection: $($_.Exception.Message)" -ForegroundColor Red
+                            $content = @{ error = "Failed to start inventory collection. See the server console for details." } | ConvertTo-Json
                         }
                     }
                 } else {
@@ -339,8 +370,8 @@ try {
                             Write-Host "  ✓ Inventory collection complete" -ForegroundColor Green
                         } catch {
                             Write-Host "  ✗ Inventory collection error: $($_.Exception.Message)" -ForegroundColor Red
-                            $script:InventoryData = @{ error = $_.Exception.Message }
-                            $completedStatus = "Error: $($_.Exception.Message)"
+                            $script:InventoryData = @{ error = "Inventory collection failed. See the server console for details." }
+                            $completedStatus = "Error: collection failed — see the server console for details"
                         } finally {
                             $script:CollectionPipeline.Dispose()
                             $script:CollectionRunspace.Close()
@@ -399,8 +430,7 @@ try {
                             $script:InventoryData = @{}
                             
                             # Save Azure context so the background runspace can authenticate
-                            $azContextPath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-az-context.json"
-                            Save-AzContext -Path $azContextPath -Force | Out-Null
+                            $azContextPath = Save-ServerAzContext
                             
                             $script:CollectionInProgress = $true
                             $script:CollectionRunspace = [runspacefactory]::CreateRunspace()
@@ -414,6 +444,8 @@ try {
                                 param($scriptPath, $ctxPath)
                                 Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights -ErrorAction Stop
                                 Import-AzContext -Path $ctxPath -ErrorAction Stop | Out-Null
+                                # Context imported — remove the token file as soon as it is no longer needed
+                                Remove-Item $ctxPath -Force -ErrorAction SilentlyContinue
                                 . $scriptPath
                                 $result = Get-AzureLandingZoneInventory
                                 return $result
@@ -428,7 +460,8 @@ try {
                             } | ConvertTo-Json
                         } catch {
                             $script:CollectionInProgress = $false
-                            $content = @{ success = $false; error = $_.Exception.Message } | ConvertTo-Json
+                            Write-Host "  ✗ Failed to start refresh: $($_.Exception.Message)" -ForegroundColor Red
+                            $content = @{ success = $false; error = "Failed to start refresh. See the server console for details." } | ConvertTo-Json
                         }
                     }
                 } else {
@@ -444,11 +477,11 @@ try {
             }
         }
         
-        # Send response
+        # Send response (same-origin only — deliberately no CORS headers)
         $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
         $response.ContentLength64 = $buffer.Length
         $response.ContentType = $contentType
-        $response.Headers.Add("Access-Control-Allow-Origin", "*")
+        $response.Headers.Add("X-Content-Type-Options", "nosniff")
         $response.OutputStream.Write($buffer, 0, $buffer.Length)
         $response.Close()
     }
@@ -457,5 +490,9 @@ finally {
     Write-Host "`n🛑 Stopping server..." -ForegroundColor Yellow
     $listener.Stop()
     $listener.Close()
+    # Remove any leftover Azure context (token) file
+    if (Test-Path $script:AzContextFilePath) {
+        Remove-Item $script:AzContextFilePath -Force -ErrorAction SilentlyContinue
+    }
     Write-Host "✓ Server stopped" -ForegroundColor Green
 }

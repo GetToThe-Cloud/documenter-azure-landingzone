@@ -21,8 +21,12 @@
 # Script version
 $script:Version = "1.0.0"
 
-# Progress file path for real-time progress reporting
-$script:ProgressFilePath = Join-Path ([System.IO.Path]::GetTempPath()) "azlz-inventory-progress.json"
+# Progress file path for real-time progress reporting (per-user app dir, not the shared temp dir)
+$script:AppDataDir = Join-Path $HOME '.documenter-azure-landingzone'
+if (-not (Test-Path $script:AppDataDir)) {
+    New-Item -ItemType Directory -Path $script:AppDataDir -Force | Out-Null
+}
+$script:ProgressFilePath = Join-Path $script:AppDataDir "inventory-progress.json"
 
 function Update-CollectionProgress {
     param(
@@ -44,6 +48,75 @@ function Update-CollectionProgress {
         # Non-critical - continue even if progress file write fails
     }
     Write-Host "    ○ [$Step/$TotalSteps] $Status" -ForegroundColor Gray
+}
+
+# --- Safe scoring-condition evaluation (no Invoke-Expression) ---------------
+# Grammar: <token> <op> <token> joined by AND / OR (AND binds tighter than OR).
+# Tokens are metric names, numbers, or true/false. Operators: >= <= == != > <
+
+function Resolve-ConditionToken {
+    param(
+        [string]$Token,
+        [hashtable]$Metrics
+    )
+    $Token = $Token.Trim()
+    if ($Metrics.ContainsKey($Token)) { return $Metrics[$Token] }
+    if ($Token -eq 'true')  { return $true }
+    if ($Token -eq 'false') { return $false }
+    $num = 0.0
+    if ([double]::TryParse($Token, [ref]$num)) { return $num }
+    throw "Unknown token '$Token' in scoring condition"
+}
+
+function Test-ConditionComparison {
+    param(
+        [string]$Expression,
+        [hashtable]$Metrics
+    )
+    if ($Expression -match '^\s*([\w.]+)\s*(>=|<=|==|!=|>|<)\s*([\w.]+)\s*$') {
+        $left  = Resolve-ConditionToken -Token $Matches[1] -Metrics $Metrics
+        $op    = $Matches[2]
+        $right = Resolve-ConditionToken -Token $Matches[3] -Metrics $Metrics
+        
+        if ($left -is [bool] -or $right -is [bool]) {
+            $l = [bool]$left; $r = [bool]$right
+            switch ($op) {
+                '==' { return $l -eq $r }
+                '!=' { return $l -ne $r }
+                default { throw "Operator '$op' is not valid for boolean values" }
+            }
+        }
+        
+        $l = [double]$left; $r = [double]$right
+        switch ($op) {
+            '>=' { return $l -ge $r }
+            '<=' { return $l -le $r }
+            '==' { return $l -eq $r }
+            '!=' { return $l -ne $r }
+            '>'  { return $l -gt $r }
+            '<'  { return $l -lt $r }
+        }
+    }
+    # Bare token — treat as a boolean metric
+    return [bool](Resolve-ConditionToken -Token $Expression -Metrics $Metrics)
+}
+
+function Test-ScoringCondition {
+    param(
+        [string]$Condition,
+        [hashtable]$Metrics
+    )
+    foreach ($orPart in ($Condition -split '\bOR\b')) {
+        $andResult = $true
+        foreach ($andPart in ($orPart -split '\bAND\b')) {
+            if (-not (Test-ConditionComparison -Expression $andPart -Metrics $Metrics)) {
+                $andResult = $false
+                break
+            }
+        }
+        if ($andResult) { return $true }
+    }
+    return $false
 }
 
 function Get-AzureLandingZoneInventory {
@@ -1350,37 +1423,7 @@ function Get-LandingZoneBestPracticesAssessment {
             
             # Evaluate main condition
             try {
-                $condition = $rule.condition
-                # Replace variable names with actual values
-                foreach ($key in $metrics.Keys) {
-                    $value = $metrics[$key]
-                    # Handle different value types properly
-                    if ($value -is [bool]) {
-                        $value = if ($value) { '$true' } else { '$false' }
-                    } elseif ($null -eq $value) {
-                        $value = '0'
-                    } else {
-                        # Ensure numeric values are properly formatted
-                        $value = $value.ToString()
-                    }
-                    $condition = $condition -replace "\b$key\b", $value
-                }
-                # Convert logical operators to PowerShell syntax
-                $condition = $condition -replace '\bAND\b', '-and'
-                $condition = $condition -replace '\bOR\b', '-or'
-                $condition = $condition -replace '\btrue\b', '$true'
-                $condition = $condition -replace '\bfalse\b', '$false'
-                
-                # Convert comparison operators to PowerShell syntax
-                $condition = $condition -replace '>=', '-ge'
-                $condition = $condition -replace '<=', '-le'
-                $condition = $condition -replace '==', '-eq'
-                $condition = $condition -replace '!=', '-ne'
-                $condition = $condition -replace '(?<!-)>(?!=)', '-gt'  # > but not >= (already converted)
-                $condition = $condition -replace '(?<!-)<(?!=)', '-lt'  # < but not <= (already converted)
-                
-                # Evaluate the condition
-                $conditionMet = Invoke-Expression $condition
+                $conditionMet = Test-ScoringCondition -Condition $rule.condition -Metrics $metrics
             } catch {
                 Write-Warning "Failed to evaluate condition for rule $($rule.id): $($rule.condition) | Error: $($_.Exception.Message)"
                 $conditionMet = $false
@@ -1389,30 +1432,7 @@ function Get-LandingZoneBestPracticesAssessment {
             # Evaluate partial points condition if exists
             if ($rule.partialPoints -and -not $conditionMet) {
                 try {
-                    $partialCondition = $rule.partialPoints.condition
-                    foreach ($key in $metrics.Keys) {
-                        $value = $metrics[$key]
-                        # Handle boolean values
-                        if ($value -is [bool]) {
-                            $value = if ($value) { '$true' } else { '$false' }
-                        }
-                        $partialCondition = $partialCondition -replace "\b$key\b", $value
-                    }
-                    # Convert logical operators to PowerShell syntax
-                    $partialCondition = $partialCondition -replace '\bAND\b', '-and'
-                    $partialCondition = $partialCondition -replace '\bOR\b', '-or'
-                    $partialCondition = $partialCondition -replace '\btrue\b', '$true'
-                    $partialCondition = $partialCondition -replace '\bfalse\b', '$false'
-                    
-                    # Convert comparison operators to PowerShell syntax
-                    $partialCondition = $partialCondition -replace '>=', '-ge'
-                    $partialCondition = $partialCondition -replace '<=', '-le'
-                    $partialCondition = $partialCondition -replace '==', '-eq'
-                    $partialCondition = $partialCondition -replace '!=', '-ne'
-                    $partialCondition = $partialCondition -replace '(?<!-)>(?!=)', '-gt'
-                    $partialCondition = $partialCondition -replace '(?<!-)<(?!=)', '-lt'
-                    
-                    $partialConditionMet = Invoke-Expression $partialCondition
+                    $partialConditionMet = Test-ScoringCondition -Condition $rule.partialPoints.condition -Metrics $metrics
                 } catch {
                     $partialConditionMet = $false
                 }

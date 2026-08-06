@@ -222,14 +222,14 @@ To modify the assessment calculations:
 
 ### Required Azure PowerShell Modules
 
-The tool **automatically checks and installs/updates** these modules on startup:
+The tool **automatically checks and installs missing** modules on startup (Scope: CurrentUser):
 
 - **Az.Accounts** - Azure authentication and context management
 - **Az.Resources** - Resource, policy, and management group operations
 - **Az.Network** - Virtual networks, VPN gateways, firewalls, DNS
 - **Az.PolicyInsights** - Policy compliance and remediation data
 
-**Note:** All modules are automatically installed and updated to the latest version when you start the server. No manual installation needed!
+**Note:** Missing modules are installed automatically on startup. Already-installed modules are **never** updated automatically — if a newer version is available, the server prints a notice and you can update manually with `Update-Module <name>`.
 
 ### Manual Installation (Optional)
 
@@ -816,13 +816,21 @@ WARNING: Unable to acquire token for tenant 'xxx' with error 'No such host is kn
 
 ## 🔐 Security
 
-- **localhost Only**: Server binds to 127.0.0.1 (no network exposure)
+- **localhost Only**: Server binds to 127.0.0.1 (no network exposure); `HttpListener` also validates the Host header
+- **Same-Origin Only**: No CORS headers are sent — cross-origin pages cannot read the inventory API
+- **CSRF Protection**: State-changing endpoints (`/api/auth/login`, `/api/inventory/refresh`) require a POST request with the `X-Requested-With: XMLHttpRequest` header; plain GET/link/form requests are rejected with 403
 - **Device Code Auth**: Secure Azure authentication flow
-- **No Storage**: No credentials or tokens stored locally
+- **Protected Token Handling**: The Az context used by the background collector is written to `~/.documenter-azure-landingzone/` (directory `0700`, file `0600` on macOS/Linux), deleted immediately after the collector imports it, and again on server shutdown — never placed in the shared system temp directory
+- **No Dynamic Code Evaluation**: Scoring and WAF conditions from `scoring-config.json` / `waf-config.json` are parsed with a strict, safe evaluator (tokens, comparison operators, AND/OR only) — no `Invoke-Expression` in PowerShell and no `eval()` in JavaScript
+- **XSS Protection**: All Azure-derived values (resource names, tags, descriptions, scopes, etc.) are HTML-escaped before being rendered in the dashboard
+- **Hardened Frontend**: CDN scripts/styles are pinned with Subresource Integrity (SRI) hashes + `crossorigin="anonymous"`, and a Content-Security-Policy meta tag restricts sources; responses include `X-Content-Type-Options: nosniff`
+- **No Silent Module Updates**: Required Az modules are installed only if missing; the server never force-updates installed modules (it notifies you when an update is available so you can run `Update-Module` yourself)
+- **Generic Error Responses**: API errors return generic messages; full exception details are only written to the server console
 - **Read-Only**: Only queries resources, never modifies
 - **Session-Based**: Authentication per browser session
-- **Automatic Cleanup**: Context cleared on server stop
-- **No External APIs**: All data stays on your local machine
+- **No External APIs**: All data stays on your local machine (only the CDN assets for the diagram/PDF libraries are fetched)
+
+> Note: the dashboard itself has no login — anything running on the same machine can reach `http://localhost:<port>`. Run it only on trusted, single-user machines.
 
 ## 📊 Performance Characteristics
 
