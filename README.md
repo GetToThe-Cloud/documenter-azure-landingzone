@@ -885,6 +885,14 @@ WARNING: Unable to acquire token for tenant 'xxx' with error 'No such host is kn
 
 ## 🤝 Contributing
 
+### Publishing Releases
+
+The `release.yml` workflow creates the GitHub Release and publishes the module version from `documenter-azure-landingzone.psd1` to PowerShell Gallery.
+
+Before the first release, create a PowerShell Gallery API key with package push permission, then add it to the GitHub repository at **Settings > Secrets and variables > Actions** as a repository secret named `PSGALLERY_API_KEY`. Never commit the key to the workflow or repository.
+
+The workflow skips versions already present in PowerShell Gallery, so failed publication runs can be retried with **Actions > Create Release > Run workflow** after the secret is configured.
+
 ### Adding New Azure Resources
 1. **Collection**: Update `Get-AzureLandingZoneInventory.ps1`
    ```powershell

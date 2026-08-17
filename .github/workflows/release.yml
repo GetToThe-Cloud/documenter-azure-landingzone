@@ -41,3 +41,33 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --title "v${{ steps.version.outputs.version }}" \
             --generate-notes
+
+      - name: Check if module version exists in PowerShell Gallery
+        id: gallery
+        shell: pwsh
+        env:
+          MODULE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $published = Find-Module `
+              -Name 'documenter-azure-landingzone' `
+              -RequiredVersion $env:MODULE_VERSION `
+              -Repository PSGallery `
+              -ErrorAction SilentlyContinue
+          $exists = $null -ne $published
+          "exists=$($exists.ToString().ToLowerInvariant())" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+
+      - name: Publish module to PowerShell Gallery
+        if: steps.gallery.outputs.exists == 'false'
+        shell: pwsh
+        env:
+          PSGALLERY_API_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:PSGALLERY_API_KEY)) {
+              throw 'Missing required GitHub Actions secret: PSGALLERY_API_KEY.'
+          }
+
+          Publish-Module `
+              -Path . `
+              -Repository PSGallery `
+              -NuGetApiKey $env:PSGALLERY_API_KEY `
+              -Verbose
