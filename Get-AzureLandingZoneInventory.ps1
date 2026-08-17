@@ -19,7 +19,7 @@
 #>
 
 # Script version
-$script:Version = "1.3.0"
+$script:Version = "1.4.0"
 
 # Progress file path for real-time progress reporting (per-user app dir, not the shared temp dir)
 $script:AppDataDir = Join-Path $HOME '.documenter-azure-landingzone'
@@ -1673,9 +1673,17 @@ function Get-LandingZoneBestPracticesAssessment {
         peeringCount = $Inventory.summary.totalPeerings ?? 0
         vpnCount = if ($Inventory.networking.vpnGateways) { $Inventory.networking.vpnGateways.Count } else { 0 }
         fwCount = if ($Inventory.networking.firewalls) { $Inventory.networking.firewalls.Count } else { 0 }
+        expressRouteCount = if ($Inventory.networking.expressRoutes) { $Inventory.networking.expressRoutes.Count } else { 0 }
+        privateDnsCount = if ($Inventory.networking.privateDnsZones) { $Inventory.networking.privateDnsZones.Count } else { 0 }
+        nsgEligibleCount = @($Inventory.networking.subnets | Where-Object {
+            $_.name -and $_.name -notmatch '^(AzureFirewallSubnet|GatewaySubnet|RouteServerSubnet)$'
+        }).Count
+        nsgProtectedCount = @($Inventory.networking.subnets | Where-Object {
+            $_.name -and $_.name -notmatch '^(AzureFirewallSubnet|GatewaySubnet|RouteServerSubnet)$' -and $_.networkSecurityGroupId
+        }).Count
         locks = $Inventory.summary.totalLocks ?? 0
         nsgCount = if ($Inventory.networking.networkSecurityGroups) { $Inventory.networking.networkSecurityGroups.Count } else { 0 }
-        budgets = $Inventory.summary.totalBudgets ?? 0
+        budgets = @($Inventory.governance.budgets | Where-Object { $_ }).Count
         tagCount = if ($Inventory.governance.tags.Keys) { $Inventory.governance.tags.Keys.Count } else { 0 }
         hasPrivilegedRoles = [bool]($Inventory.roleAssignments | Where-Object { $_.roleDefinitionName -match 'Owner|Contributor' })
     }

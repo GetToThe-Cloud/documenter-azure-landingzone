@@ -1,5 +1,11 @@
 # Changes
 
+## v1.4.0 — Design-based CAF scoring (2026-08-17)
+
+- Updated network scoring to recognize a hub foundation, centralized connectivity services, private DNS, and workload peering without penalizing an early-stage landing zone for having no spokes yet.
+- Updated security scoring to credit Azure Firewall when NSGs are not applicable to restricted hub subnets such as `AzureFirewallSubnet` and `GatewaySubnet`.
+- Counted budgets across the collected subscriptions so budgets on workload subscriptions contribute to cost governance scoring.
+
 ## v1.3.0 — Detailed networking, scoped governance inventory, and export (2026-08-17)
 
 - Added flat subnet inventory with address prefixes, delegations, service endpoints, route-table references, and NSG references.

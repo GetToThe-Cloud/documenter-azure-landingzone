@@ -1,7 +1,7 @@
 @{
     # Module metadata
     RootModule        = 'documenter-azure-landingzone.psm1'
-    ModuleVersion     = '1.3.0'
+    ModuleVersion     = '1.4.0'
     GUID              = 'd3d0da85-9b23-4c31-9861-2cad60ef45f5'
     Author            = 'Alex ter Neuzen'
     CompanyName       = 'GetToTheCloud'
@@ -66,7 +66,12 @@
             ProjectUri   = 'https://github.com/GetToThe-Cloud/documenter-azure-landingzone'
             IconUri      = ''
             ReleaseNotes = @'
-v1.3.0 (detailed networking inventory, report styling, and assignment scope fix — see changes.md)
+            v1.4.0 (design-based CAF scoring — see changes.md)
+              - Recognized hub foundations and centralized connectivity before workload spokes exist
+              - Excluded NSG-restricted hub subnets from security scoring and credited Azure Firewall
+              - Aggregated budgets across the collected subscription scope
+
+            v1.3.0 (detailed networking inventory, report styling, and assignment scope fix — see changes.md)
   - Added detailed subnet, route table, virtual hub, NSG rule, and association inventory
   - Added branded PDF report styling and reliable server shutdown
   - Scoped policy and role assignment collection to management groups and subscriptions

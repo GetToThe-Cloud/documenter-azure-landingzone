@@ -4,7 +4,7 @@ A comprehensive web-based inventory and assessment dashboard for Azure Landing Z
 
 ![Azure Landing Zone](https://img.shields.io/badge/Azure-Landing%20Zone-0078D4?style=for-the-badge&logo=microsoft-azure)
 ![PowerShell](https://img.shields.io/badge/PowerShell-7+-5391FE?style=for-the-badge&logo=powershell)
-![Version](https://img.shields.io/badge/Version-1.3.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-1.4.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 ## 🌟 Overview
@@ -17,7 +17,7 @@ The Azure Landing Zone Inventory Tool automatically collects and analyzes your A
 - **Real-Time Dashboard**: Interactive web interface with detailed resource information
 - **Automatic Module Management**: Installs missing required PowerShell modules
 
-**Version:** 1.3.0
+**Version:** 1.4.0
 **Created by:** Alex ter Neuzen for [GetToTheCloud](https://www.gettothe.cloud)
 
 ## ✨ Key Features
@@ -167,6 +167,8 @@ To modify the assessment calculations:
 - `peeringCount` - VNet peerings
 - `vpnCount` - VPN gateways
 - `fwCount` - Azure Firewalls
+- `expressRouteCount` - ExpressRoute circuits
+- `privateDnsCount` - Private DNS zones
 - `locks` - Resource locks
 - `nsgCount` - Network security groups
 - `budgets` - Cost management budgets
