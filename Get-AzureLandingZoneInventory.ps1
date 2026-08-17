@@ -579,7 +579,11 @@ Move Strategy:
                         } else {
                             'Not specified'
                         }
-                        $key = if ($assignment.Id) {
+                        $key = if ($assignment.PolicyAssignmentId) {
+                            $assignment.PolicyAssignmentId
+                        } elseif ($assignment.Properties.PolicyAssignmentId) {
+                            $assignment.Properties.PolicyAssignmentId
+                        } elseif ($assignment.Id) {
                             $assignment.Id
                         } else {
                             "$($assignment.Name)|$assignmentScope"
