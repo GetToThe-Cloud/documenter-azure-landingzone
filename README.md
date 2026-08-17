@@ -4,7 +4,7 @@ A comprehensive web-based inventory and assessment dashboard for Azure Landing Z
 
 ![Azure Landing Zone](https://img.shields.io/badge/Azure-Landing%20Zone-0078D4?style=for-the-badge&logo=microsoft-azure)
 ![PowerShell](https://img.shields.io/badge/PowerShell-7+-5391FE?style=for-the-badge&logo=powershell)
-![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-1.3.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 ## 🌟 Overview
@@ -17,7 +17,7 @@ The Azure Landing Zone Inventory Tool automatically collects and analyzes your A
 - **Real-Time Dashboard**: Interactive web interface with detailed resource information
 - **Automatic Module Management**: Installs missing required PowerShell modules
 
-**Version:** 1.0.0  
+**Version:** 1.3.0
 **Created by:** Alex ter Neuzen for [GetToTheCloud](https://www.gettothe.cloud)
 
 ## ✨ Key Features
@@ -366,7 +366,7 @@ pwsh -File Start-AzureLandingZoneServer.ps1
 ```
 azurelandingzone-inventory/
 ├── Start-AzureLandingZoneServer.ps1    # HTTP server with auto module management
-├── Get-AzureLandingZoneInventory.ps1   # Data collection engine (v1.1.1)
+├── Get-AzureLandingZoneInventory.ps1   # Data collection engine (v1.3.0)
 ├── scoring-config.json                  # CAF scoring rules configuration
 ├── waf-config.json                      # WAF pillar assessment configuration
 ├── index.html                           # Dashboard interface with progress bar
@@ -403,7 +403,7 @@ azurelandingzone-inventory/
 - PDF export button
 
 **app.js**
-- Frontend application logic (v1.1.1)
+- Frontend application logic (v1.3.0)
 - REST API integration
 - Dynamic table rendering
 - Multi-stage progress simulation
@@ -484,7 +484,7 @@ Complete network infrastructure visibility:
 Generated reports include:
 
 ### 📑 Cover Page
-- Tool name and version (v1.0.0)
+- Tool name and version (v1.3.0)
 - Generation timestamp
 - Tenant ID
 - Azure Landing Zone branding
@@ -852,7 +852,7 @@ WARNING: Unable to acquire token for tenant 'xxx' with error 'No such host is kn
 - Management group hierarchy depth
 
 ### Resource Collection Scope
-**Version 1.1.1 removes all artificial limits:**
+**Version 1.3.0 removes all artificial limits:**
 - ✅ **All** Management Groups
 - ✅ **All** Subscriptions  
 - ✅ **All** Policy Definitions (custom & built-in)
@@ -962,7 +962,7 @@ WARNING: Unable to acquire token for tenant 'xxx' with error 'No such host is kn
 **CAF Scoring Rules** - Edit `scoring-config.json`:
 ```json
 {
-  "version": "1.0.0",
+  "version": "1.3.0",
   "categories": [
     {
       "name": "Management Group Hierarchy",
@@ -985,7 +985,7 @@ WARNING: Unable to acquire token for tenant 'xxx' with error 'No such host is kn
 **WAF Pillar Checks** - Edit `waf-config.json`:
 ```json
 {
-  "version": "1.0.0",
+  "version": "1.3.0",
   "pillars": [
     {
       "name": "Reliability",
@@ -1110,7 +1110,7 @@ IT Consultant with experience in Azure Local, Azure Landing Zones and Azure Virt
 
 <div align="center">
 
-**Version 1.1.1** | Built with PowerShell 7+ | Last Updated: 2026
+**Version 1.3.0** | Built with PowerShell 7+ | Last Updated: 2026
 
 *Empowering Azure Landing Zone visibility and governance through automated inventory and assessment*
 

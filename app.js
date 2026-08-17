@@ -1246,7 +1246,7 @@ function exportToJSON() {
                     locks: (inventoryData.governance?.locks || []).length
                 },
                 exportedAt: new Date().toISOString(),
-                exportVersion: '1.2.0'
+                exportVersion: APP_VERSION
             }
         };
         
@@ -3540,4 +3540,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 });
-

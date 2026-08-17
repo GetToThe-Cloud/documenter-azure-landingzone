@@ -1,6 +1,6 @@
 # Changes
 
-## v1.3.0 — Detailed networking inventory and export
+## v1.3.0 — Detailed networking, scoped governance inventory, and export (2026-08-17)
 
 - Added flat subnet inventory with address prefixes, delegations, service endpoints, route-table references, and NSG references.
 - Added route-table inventory with user-defined routes, next-hop details, BGP propagation, and associated subnet links.
@@ -8,6 +8,7 @@
 - Fixed Virtual Hub discovery by resolving each hub with its resource group instead of relying on an unsupported tenant-wide `Get-AzVirtualHub` call.
 - Added complete custom and default NSG rule records plus explicit subnet and NIC association records.
 - Added dashboard and branded PDF tables for subnets, UDRs, Virtual Hubs, NSG rules, and NSG associations.
+- Scoped policy and role assignment collection to every collected management group and subscription, de-duplicating inherited assignments by ID.
 
 ## v1.2.0 — Report styling and server shutdown (2026-08-12)
 
