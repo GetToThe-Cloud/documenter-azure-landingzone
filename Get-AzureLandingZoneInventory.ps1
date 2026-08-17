@@ -157,10 +157,13 @@ function Get-AzureLandingZoneInventory {
         roleAssignments = @()
         networking = @{
             vnets = @()
+            subnets = @()
+            routeTables = @()
             peerings = @()
             vpnGateways = @()
             expressRoutes = @()
             virtualWans = @()
+            virtualHubs = @()
             firewalls = @()
             firewallPolicies = @()
             networkSecurityGroups = @()
@@ -184,6 +187,8 @@ function Get-AzureLandingZoneInventory {
             totalPolicyAssignments = 0
             totalRoleAssignments = 0
             totalVNets = 0
+            totalSubnets = 0
+            totalRouteTables = 0
             totalPeerings = 0
             totalBudgets = 0
             totalLocks = 0
@@ -191,6 +196,7 @@ function Get-AzureLandingZoneInventory {
             totalPrivateDnsZones = 0
             totalPrivateEndpoints = 0
             totalVirtualWans = 0
+            totalVirtualHubs = 0
             totalFirewalls = 0
             totalFirewallPolicies = 0
         }
@@ -711,26 +717,108 @@ Move Strategy:
                 }
                 
                 # Virtual Networks
-                $vnets = Get-AzVirtualNetwork -ErrorAction SilentlyContinue
+                $vnets = @(Get-AzVirtualNetwork -ErrorAction SilentlyContinue)
                 foreach ($vnet in $vnets) {
+                    $subnetDetails = @()
+                    foreach ($subnet in @($vnet.Subnets)) {
+                        $subnetId = if ($subnet.Id) { $subnet.Id } else { "$($vnet.Id)/subnets/$($subnet.Name)" }
+                        $subnetAddressPrefixes = if ($subnet.AddressPrefixes) {
+                            @($subnet.AddressPrefixes)
+                        } elseif ($subnet.AddressPrefix) {
+                            @($subnet.AddressPrefix)
+                        } else {
+                            @()
+                        }
+                        $routeTableId = if ($subnet.RouteTable -and $subnet.RouteTable.Id) { $subnet.RouteTable.Id } else { $null }
+                        $networkSecurityGroupId = if ($subnet.NetworkSecurityGroup -and $subnet.NetworkSecurityGroup.Id) { $subnet.NetworkSecurityGroup.Id } else { $null }
+                        $subnetDetail = @{
+                            id = $subnetId
+                            name = $subnet.Name
+                            vnetName = $vnet.Name
+                            vnetId = $vnet.Id
+                            resourceGroup = $vnet.ResourceGroupName
+                            location = $vnet.Location
+                            addressPrefix = if ($subnet.AddressPrefix) { $subnet.AddressPrefix } elseif ($subnetAddressPrefixes.Count -gt 0) { $subnetAddressPrefixes[0] } else { $null }
+                            addressPrefixes = $subnetAddressPrefixes
+                            serviceEndpoints = @($subnet.ServiceEndpoints | ForEach-Object { $_.Service })
+                            delegations = @($subnet.Delegations | ForEach-Object {
+                                @{
+                                    name = $_.Name
+                                    serviceName = $_.ServiceName
+                                    actions = @($_.Actions)
+                                }
+                            })
+                            routeTableId = $routeTableId
+                            routeTable = if ($routeTableId) { Split-Path $routeTableId -Leaf } else { $null }
+                            networkSecurityGroupId = $networkSecurityGroupId
+                            networkSecurityGroup = if ($networkSecurityGroupId) { Split-Path $networkSecurityGroupId -Leaf } else { $null }
+                            privateEndpointNetworkPolicies = $subnet.PrivateEndpointNetworkPolicies
+                            privateLinkServiceNetworkPolicies = $subnet.PrivateLinkServiceNetworkPolicies
+                            provisioningState = $subnet.ProvisioningState
+                            subscription = $sub.Name
+                        }
+                        $subnetDetails += $subnetDetail
+                        $inventory.networking.subnets += $subnetDetail
+                    }
+
                     $inventory.networking.vnets += @{
+                        id = $vnet.Id
                         name = $vnet.Name
                         resourceGroup = $vnet.ResourceGroupName
                         location = $vnet.Location
-                        addressSpace = $vnet.AddressSpace.AddressPrefixes
-                        subnets = @($vnet.Subnets | ForEach-Object {
-                            @{
-                                name = $_.Name
-                                addressPrefix = $_.AddressPrefix
-                                serviceEndpoints = @($_.ServiceEndpoints | ForEach-Object { $_.Service })
-                            }
-                        })
+                        addressSpace = @($vnet.AddressSpace.AddressPrefixes)
+                        subnets = $subnetDetails
                         dnsServers = $vnet.DhcpOptions.DnsServers
                         tags = $vnet.Tag
                         subscription = $sub.Name
                     }
                 }
                 $inventory.summary.totalVNets += $vnets.Count
+                $inventory.summary.totalSubnets = $inventory.networking.subnets.Count
+
+                # Route tables and UDR routes
+                try {
+                    $routeTables = @(Get-AzRouteTable -ErrorAction SilentlyContinue)
+                    foreach ($routeTable in $routeTables) {
+                        $routeDetails = @($routeTable.Routes | ForEach-Object {
+                            @{
+                                id = $_.Id
+                                name = $_.Name
+                                addressPrefix = $_.AddressPrefix
+                                nextHopType = $_.NextHopType
+                                nextHopIpAddress = $_.NextHopIpAddress
+                                provisioningState = $_.ProvisioningState
+                            }
+                        })
+                        $associatedSubnets = @($inventory.networking.subnets | Where-Object {
+                            $_.routeTableId -and $_.routeTableId -ieq $routeTable.Id
+                        } | ForEach-Object {
+                            @{
+                                id = $_.id
+                                name = $_.name
+                                vnetName = $_.vnetName
+                                vnetId = $_.vnetId
+                                displayName = "$($_.vnetName)/$($_.name)"
+                            }
+                        })
+
+                        $inventory.networking.routeTables += @{
+                            id = $routeTable.Id
+                            name = $routeTable.Name
+                            resourceGroup = $routeTable.ResourceGroupName
+                            location = $routeTable.Location
+                            disableBgpRoutePropagation = $routeTable.DisableBgpRoutePropagation
+                            routes = $routeDetails
+                            routeCount = $routeDetails.Count
+                            associatedSubnets = $associatedSubnets
+                            tags = $routeTable.Tags
+                            subscription = $sub.Name
+                        }
+                    }
+                } catch {
+                    Write-Host "      ⚠️  Error collecting Route Tables: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+                $inventory.summary.totalRouteTables = $inventory.networking.routeTables.Count
                 
                 # VNet Peerings
                 foreach ($vnet in $vnets) {
@@ -965,6 +1053,61 @@ Move Strategy:
                     Write-Host "      ⚠️  Error collecting Firewall Policies" -ForegroundColor Yellow
                 }
                 
+                # Virtual Hubs
+                try {
+                    $virtualHubResources = @(Get-AzResource -ResourceType 'Microsoft.Network/virtualHubs' -ErrorAction Stop)
+                    foreach ($hubResource in $virtualHubResources) {
+                        try {
+                            $hub = Get-AzVirtualHub -ResourceGroupName $hubResource.ResourceGroupName -Name $hubResource.Name -ErrorAction Stop
+                            if (-not $hub) { continue }
+
+                        $vnetConnections = @()
+                        try {
+                            $hubConnections = @(Get-AzVirtualHubVnetConnection -ParentObject $hub -ErrorAction SilentlyContinue)
+                            foreach ($connection in $hubConnections) {
+                                $remoteVNetId = if ($connection.RemoteVirtualNetwork -and $connection.RemoteVirtualNetwork.Id) { $connection.RemoteVirtualNetwork.Id } else { $null }
+                                $vnetConnections += @{
+                                    id = $connection.Id
+                                    name = $connection.Name
+                                    remoteVNetId = $remoteVNetId
+                                    remoteVNet = if ($remoteVNetId) { Split-Path $remoteVNetId -Leaf } else { $null }
+                                    provisioningState = $connection.ProvisioningState
+                                }
+                            }
+                        } catch {
+                            Write-Host "      ⚠️  Error collecting VNet connections for Virtual Hub $($hub.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
+
+                        $virtualWanId = if ($hub.VirtualWan -and $hub.VirtualWan.Id) { $hub.VirtualWan.Id } else { $null }
+                        $inventory.networking.virtualHubs += @{
+                            id = $hub.Id
+                            name = $hub.Name
+                            resourceGroup = $hub.ResourceGroupName
+                            location = $hub.Location
+                            addressPrefix = $hub.AddressPrefix
+                            routingState = $hub.RoutingState
+                            provisioningState = $hub.ProvisioningState
+                            sku = if ($hub.Sku -and $hub.Sku.Name) { $hub.Sku.Name } else { $hub.Sku }
+                            hubRoutingPreference = $hub.HubRoutingPreference
+                            allowBranchToBranchTraffic = $hub.AllowBranchToBranchTraffic
+                            virtualWanId = $virtualWanId
+                            virtualWanName = if ($virtualWanId) { Split-Path $virtualWanId -Leaf } else { $null }
+                            virtualRouterAsn = $hub.VirtualRouterAsn
+                            virtualRouterIps = @($hub.VirtualRouterIps)
+                            vnetConnections = $vnetConnections
+                            connectionCount = $vnetConnections.Count
+                            tags = $hub.Tag
+                            subscription = $sub.Name
+                        }
+                        } catch {
+                            Write-Host "      ⚠️  Error processing Virtual Hub $($hubResource.Name): $($_.Exception.Message)" -ForegroundColor Yellow
+                        }
+                    }
+                } catch {
+                    Write-Host "      ⚠️  Error collecting Virtual Hubs: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+                $inventory.summary.totalVirtualHubs = $inventory.networking.virtualHubs.Count
+
                 # Virtual WANs
                 try {
                     $vwanResources = Get-AzResource -ResourceType 'Microsoft.Network/virtualWans' -ErrorAction SilentlyContinue
@@ -972,20 +1115,9 @@ Move Strategy:
                         try {
                             $vwan = Get-AzVirtualWan -ResourceGroupName $vwanResource.ResourceGroupName -Name $vwanResource.Name -ErrorAction SilentlyContinue
                             if ($vwan) {
-                                # Get Virtual Hubs associated with this VWAN
-                                $vHubs = Get-AzVirtualHub -ErrorAction SilentlyContinue | Where-Object { 
-                                    $_.VirtualWan.Id -eq $vwan.Id 
-                                }
-                                
-                                $hubDetails = @()
-                                foreach ($hub in $vHubs) {
-                                    $hubDetails += @{
-                                        name = $hub.Name
-                                        location = $hub.Location
-                                        addressPrefix = $hub.AddressPrefix
-                                        routingState = $hub.RoutingState
-                                    }
-                                }
+                                $hubDetails = @($inventory.networking.virtualHubs | Where-Object {
+                                    $_.virtualWanId -and $_.virtualWanId -ieq $vwan.Id
+                                })
                                 
                                 $inventory.networking.virtualWans += @{
                                     name = $vwan.Name
@@ -996,7 +1128,7 @@ Move Strategy:
                                     allowBranchToBranchTraffic = $vwan.AllowBranchToBranchTraffic
                                     allowVnetToVnetTraffic = $vwan.AllowVnetToVnetTraffic
                                     disableVpnEncryption = $vwan.DisableVpnEncryption
-                                    virtualHubCount = $vHubs.Count
+                                    virtualHubCount = $hubDetails.Count
                                     virtualHubs = $hubDetails
                                     tags = $vwan.Tag
                                     subscription = $sub.Name
@@ -1011,40 +1143,105 @@ Move Strategy:
                     Write-Host "      ⚠️  Error collecting Virtual WANs" -ForegroundColor Yellow
                 }
                 
-                # Network Security Groups - use Get-AzResource to find them
+                # Network Security Groups and their rules/associations
                 try {
                     $nsgResources = Get-AzResource -ResourceType 'Microsoft.Network/networkSecurityGroups' -ErrorAction SilentlyContinue
                     foreach ($nsgResource in $nsgResources) {
                         try {
                             $nsg = Get-AzNetworkSecurityGroup -ResourceGroupName $nsgResource.ResourceGroupName -Name $nsgResource.Name -ErrorAction SilentlyContinue
                             if ($nsg) {
-                                # Get associated subnets
                                 $associatedSubnets = @()
+                                $subnetConnections = @()
                                 foreach ($subnet in $nsg.Subnets) {
                                     if ($subnet.Id) {
                                         $subnetName = Split-Path $subnet.Id -Leaf
-                                        $vnetName = ($subnet.Id -split '/subnets/')[0] | Split-Path -Leaf
+                                        $vnetId = ($subnet.Id -split '/subnets/')[0]
+                                        $vnetName = Split-Path $vnetId -Leaf
                                         $associatedSubnets += "$vnetName/$subnetName"
+                                        $subnetConnections += @{
+                                            id = $subnet.Id
+                                            name = $subnetName
+                                            vnetId = $vnetId
+                                            vnetName = $vnetName
+                                            displayName = "$vnetName/$subnetName"
+                                        }
                                     }
                                 }
                                 
-                                # Get associated network interfaces
                                 $associatedNICs = @()
+                                $nicConnections = @()
                                 foreach ($nic in $nsg.NetworkInterfaces) {
                                     if ($nic.Id) {
                                         $nicName = Split-Path $nic.Id -Leaf
                                         $associatedNICs += $nicName
+                                        $nicResourceGroup = ($nic.Id -split '/')[4]
+                                        $nicConnections += @{
+                                            id = $nic.Id
+                                            name = $nicName
+                                            resourceGroup = $nicResourceGroup
+                                        }
                                     }
                                 }
+
+                                $securityRules = @($nsg.SecurityRules | ForEach-Object {
+                                    @{
+                                        id = $_.Id
+                                        name = $_.Name
+                                        description = $_.Description
+                                        protocol = $_.Protocol
+                                        sourcePortRange = $_.SourcePortRange
+                                        sourcePortRanges = @($_.SourcePortRanges)
+                                        destinationPortRange = $_.DestinationPortRange
+                                        destinationPortRanges = @($_.DestinationPortRanges)
+                                        sourceAddressPrefix = $_.SourceAddressPrefix
+                                        sourceAddressPrefixes = @($_.SourceAddressPrefixes)
+                                        destinationAddressPrefix = $_.DestinationAddressPrefix
+                                        destinationAddressPrefixes = @($_.DestinationAddressPrefixes)
+                                        sourceApplicationSecurityGroups = @($_.SourceApplicationSecurityGroups | ForEach-Object { $_.Id })
+                                        destinationApplicationSecurityGroups = @($_.DestinationApplicationSecurityGroups | ForEach-Object { $_.Id })
+                                        access = $_.Access
+                                        priority = $_.Priority
+                                        direction = $_.Direction
+                                        provisioningState = $_.ProvisioningState
+                                    }
+                                })
+                                $defaultSecurityRules = @($nsg.DefaultSecurityRules | ForEach-Object {
+                                    @{
+                                        id = $_.Id
+                                        name = $_.Name
+                                        description = $_.Description
+                                        protocol = $_.Protocol
+                                        sourcePortRange = $_.SourcePortRange
+                                        sourcePortRanges = @($_.SourcePortRanges)
+                                        destinationPortRange = $_.DestinationPortRange
+                                        destinationPortRanges = @($_.DestinationPortRanges)
+                                        sourceAddressPrefix = $_.SourceAddressPrefix
+                                        sourceAddressPrefixes = @($_.SourceAddressPrefixes)
+                                        destinationAddressPrefix = $_.DestinationAddressPrefix
+                                        destinationAddressPrefixes = @($_.DestinationAddressPrefixes)
+                                        sourceApplicationSecurityGroups = @($_.SourceApplicationSecurityGroups | ForEach-Object { $_.Id })
+                                        destinationApplicationSecurityGroups = @($_.DestinationApplicationSecurityGroups | ForEach-Object { $_.Id })
+                                        access = $_.Access
+                                        priority = $_.Priority
+                                        direction = $_.Direction
+                                        provisioningState = $_.ProvisioningState
+                                    }
+                                })
                                 
                                 $inventory.networking.networkSecurityGroups += @{
+                                    id = $nsg.Id
                                     name = $nsg.Name
                                     resourceGroup = $nsg.ResourceGroupName
                                     location = $nsg.Location
-                                    securityRulesCount = $nsg.SecurityRules.Count
-                                    defaultSecurityRulesCount = $nsg.DefaultSecurityRules.Count
+                                    securityRulesCount = $securityRules.Count
+                                    defaultSecurityRulesCount = $defaultSecurityRules.Count
+                                    securityRules = $securityRules
+                                    defaultSecurityRules = $defaultSecurityRules
                                     associatedSubnets = $associatedSubnets
+                                    subnetConnections = $subnetConnections
                                     associatedNICs = $associatedNICs
+                                    nicConnections = $nicConnections
+                                    tags = $nsg.Tags
                                     subscription = $sub.Name
                                 }
                             }

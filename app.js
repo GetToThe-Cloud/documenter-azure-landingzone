@@ -2,7 +2,7 @@
 let inventoryData = null;
 let isAuthenticated = false;
 let wafConfig = null;
-const APP_VERSION = "1.0.0";
+const APP_VERSION = "1.3.0";
 
 // Escape untrusted values before inserting into HTML (XSS protection)
 function escapeHtml(value) {
@@ -15,6 +15,11 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 const esc = escapeHtml;
+
+function asArray(value) {
+    if (value === null || value === undefined) return [];
+    return Array.isArray(value) ? value : [value];
+}
 
 // Headers required by the server's CSRF guard on state-changing endpoints
 const CSRF_HEADERS = { 'X-Requested-With': 'XMLHttpRequest' };
@@ -542,6 +547,69 @@ function populateNetworking() {
             </tr>
         `).join('');
     }
+
+    // Subnets
+    const subnetsTbody = document.getElementById('subnetsTableBody');
+    const subnets = asArray(networking.subnets);
+
+    if (subnets.length === 0) {
+        subnetsTbody.innerHTML = '<tr><td colspan="7">No subnets found</td></tr>';
+    } else {
+        subnetsTbody.innerHTML = subnets.map(subnet => `
+            <tr>
+                <td><strong>${esc(subnet.name || 'N/A')}</strong></td>
+                <td>${esc(subnet.vnetName || 'N/A')}</td>
+                <td><code>${esc(asArray(subnet.addressPrefixes).join(', ') || subnet.addressPrefix || 'N/A')}</code></td>
+                <td>${esc(subnet.routeTable || 'None')}</td>
+                <td>${esc(subnet.networkSecurityGroup || 'None')}</td>
+                <td>${esc(asArray(subnet.serviceEndpoints).join(', ') || 'None')}</td>
+                <td><small>${esc(subnet.subscription || 'N/A')}</small></td>
+            </tr>
+        `).join('');
+    }
+
+    // Route tables and UDR routes
+    const routeTablesTbody = document.getElementById('routeTablesTableBody');
+    const routeTables = asArray(networking.routeTables);
+
+    if (routeTables.length === 0) {
+        routeTablesTbody.innerHTML = '<tr><td colspan="6">No route tables found</td></tr>';
+    } else {
+        routeTablesTbody.innerHTML = routeTables.map(routeTable => {
+            const associatedSubnets = asArray(routeTable.associatedSubnets)
+                .map(subnet => subnet.displayName || `${subnet.vnetName || 'N/A'}/${subnet.name || 'N/A'}`)
+                .join(', ') || 'None';
+            return `
+                <tr>
+                    <td><strong>${esc(routeTable.name || 'N/A')}</strong></td>
+                    <td>${esc(routeTable.resourceGroup || 'N/A')}</td>
+                    <td>${esc(routeTable.location || 'N/A')}</td>
+                    <td>${routeTable.disableBgpRoutePropagation ? 'Disabled' : 'Enabled'}</td>
+                    <td>${routeTable.routeCount || asArray(routeTable.routes).length}</td>
+                    <td>${esc(associatedSubnets)}</td>
+                    <td><small>${esc(routeTable.subscription || 'N/A')}</small></td>
+                </tr>
+            `;
+        }).join('');
+    }
+
+    const udrRoutesTbody = document.getElementById('udrRoutesTableBody');
+    const udrRoutes = routeTables.flatMap(routeTable => asArray(routeTable.routes).map(route => ({ routeTable, route })));
+
+    if (udrRoutes.length === 0) {
+        udrRoutesTbody.innerHTML = '<tr><td colspan="6">No user-defined routes found</td></tr>';
+    } else {
+        udrRoutesTbody.innerHTML = udrRoutes.map(({ routeTable, route }) => `
+            <tr>
+                <td>${esc(routeTable.name || 'N/A')}</td>
+                <td><strong>${esc(route.name || 'N/A')}</strong></td>
+                <td><code>${esc(route.addressPrefix || 'N/A')}</code></td>
+                <td>${esc(route.nextHopType || 'N/A')}</td>
+                <td>${esc(route.nextHopIpAddress || 'N/A')}</td>
+                <td><small>${esc(routeTable.subscription || 'N/A')}</small></td>
+            </tr>
+        `).join('');
+    }
     
     // VNet Peerings
     const peerTbody = document.getElementById('peeringsTableBody');
@@ -602,6 +670,33 @@ function populateNetworking() {
                 <td><small>${esc(vwan.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
+    }
+
+    // Virtual Hubs
+    const virtualHubsTbody = document.getElementById('virtualHubsTableBody');
+    const virtualHubs = asArray(networking.virtualHubs);
+
+    if (virtualHubs.length === 0) {
+        virtualHubsTbody.innerHTML = '<tr><td colspan="8">No Virtual Hubs found</td></tr>';
+    } else {
+        virtualHubsTbody.innerHTML = virtualHubs.map(hub => {
+            const connectedVNets = asArray(hub.vnetConnections)
+                .map(connection => connection.remoteVNet || connection.name)
+                .filter(Boolean)
+                .join(', ') || 'None';
+            return `
+                <tr>
+                    <td><strong>${esc(hub.name || 'N/A')}</strong></td>
+                    <td>${esc(hub.resourceGroup || 'N/A')}</td>
+                    <td>${esc(hub.location || 'N/A')}</td>
+                    <td><code>${esc(hub.addressPrefix || 'N/A')}</code></td>
+                    <td>${esc(hub.virtualWanName || 'Standalone')}</td>
+                    <td>${esc(hub.routingState || 'N/A')}</td>
+                    <td>${esc(connectedVNets)}</td>
+                    <td><small>${esc(hub.subscription || 'N/A')}</small></td>
+                </tr>
+            `;
+        }).join('');
     }
     
     // Firewalls
@@ -791,21 +886,91 @@ function populateNetworking() {
 
     // NSGs
     const nsgTbody = document.getElementById('nsgsTableBody');
-    const nsgs = networking.networkSecurityGroups || [];
+    const nsgs = asArray(networking.networkSecurityGroups);
     
     if (nsgs.length === 0) {
-        nsgTbody.innerHTML = '<tr><td colspan="5">No network security groups found</td></tr>';
+        nsgTbody.innerHTML = '<tr><td colspan="8">No network security groups found</td></tr>';
     } else {
         nsgTbody.innerHTML = nsgs.map(nsg => `
             <tr>
                 <td><strong>${esc(nsg.name || 'N/A')}</strong></td>
                 <td>${esc(nsg.resourceGroup || 'N/A')}</td>
                 <td>${esc(nsg.location || 'N/A')}</td>
-                <td>${nsg.securityRulesCount || 0} rules</td>
+                <td>${nsg.securityRulesCount || 0}</td>
+                <td>${nsg.defaultSecurityRulesCount || 0}</td>
+                <td>${asArray(nsg.subnetConnections).length}</td>
+                <td>${asArray(nsg.nicConnections).length}</td>
                 <td><small>${esc(nsg.subscription || 'N/A')}</small></td>
             </tr>
         `).join('');
     }
+
+    const formatRuleEndpoint = (singleValue, multipleValues, applicationSecurityGroups) => {
+        const values = [singleValue, ...asArray(multipleValues)].filter(Boolean);
+        const asgValues = asArray(applicationSecurityGroups).filter(Boolean).map(group => `ASG: ${group}`);
+        return [...values, ...asgValues].join(', ') || '*';
+    };
+    const formatRulePorts = (singleValue, multipleValues) =>
+        [singleValue, ...asArray(multipleValues)].filter(Boolean).join(', ') || '*';
+    const nsgRuleRows = [];
+    const nsgAssociationRows = [];
+
+    nsgs.forEach(nsg => {
+        const addRuleRows = (rules, setName) => {
+            asArray(rules).forEach(rule => {
+                nsgRuleRows.push(`
+                    <tr>
+                        <td>${esc(nsg.name || 'N/A')}</td>
+                        <td>${esc(setName)}</td>
+                        <td><strong>${esc(rule.name || 'N/A')}</strong></td>
+                        <td>${esc(rule.priority ?? 'N/A')}</td>
+                        <td>${esc(`${rule.direction || 'N/A'} / ${rule.access || 'N/A'}`)}</td>
+                        <td>${esc(rule.protocol || 'N/A')}</td>
+                        <td><code>${esc(formatRuleEndpoint(rule.sourceAddressPrefix, rule.sourceAddressPrefixes, rule.sourceApplicationSecurityGroups))}</code></td>
+                        <td><code>${esc(formatRuleEndpoint(rule.destinationAddressPrefix, rule.destinationAddressPrefixes, rule.destinationApplicationSecurityGroups))}</code></td>
+                        <td>${esc(`${formatRulePorts(rule.sourcePortRange, rule.sourcePortRanges)} -> ${formatRulePorts(rule.destinationPortRange, rule.destinationPortRanges)}`)}</td>
+                        <td><small>${esc(nsg.subscription || 'N/A')}</small></td>
+                    </tr>
+                `);
+            });
+        };
+
+        addRuleRows(nsg.securityRules, 'Custom');
+        addRuleRows(nsg.defaultSecurityRules, 'Default');
+
+        asArray(nsg.subnetConnections).forEach(connection => {
+            nsgAssociationRows.push(`
+                <tr>
+                    <td>${esc(nsg.name || 'N/A')}</td>
+                    <td>Subnet</td>
+                    <td>${esc(connection.displayName || connection.name || 'N/A')}</td>
+                    <td><code>${esc(connection.id || 'N/A')}</code></td>
+                    <td><small>${esc(nsg.subscription || 'N/A')}</small></td>
+                </tr>
+            `);
+        });
+        asArray(nsg.nicConnections).forEach(connection => {
+            nsgAssociationRows.push(`
+                <tr>
+                    <td>${esc(nsg.name || 'N/A')}</td>
+                    <td>NIC</td>
+                    <td>${esc(connection.name || 'N/A')}</td>
+                    <td><code>${esc(connection.id || 'N/A')}</code></td>
+                    <td><small>${esc(nsg.subscription || 'N/A')}</small></td>
+                </tr>
+            `);
+        });
+    });
+
+    const nsgRulesTbody = document.getElementById('nsgRulesTableBody');
+    nsgRulesTbody.innerHTML = nsgRuleRows.length > 0
+        ? nsgRuleRows.join('')
+        : '<tr><td colspan="10">No NSG rules found</td></tr>';
+
+    const nsgAssociationsTbody = document.getElementById('nsgAssociationsTableBody');
+    nsgAssociationsTbody.innerHTML = nsgAssociationRows.length > 0
+        ? nsgAssociationRows.join('')
+        : '<tr><td colspan="5">No NSG associations found</td></tr>';
     
     // Private DNS Zones
     const privateDnsZonesTbody = document.getElementById('privateDnsZonesTableBody');
@@ -1016,33 +1181,45 @@ function exportToJSON() {
     btn.innerHTML = '<span class="icon">⏳</span> Exporting...';
     
     try {
+        const networking = inventoryData.networking || {};
+        const policies = inventoryData.policies || {};
+        const virtualNetworks = networking.virtualNetworks || networking.vnets || [];
+        const virtualMachines = inventoryData.virtualMachines || inventoryData.compute?.virtualMachines || [];
+        const policyDefinitions = inventoryData.policyDefinitions || policies.definitions || [];
+        const policyInitiatives = inventoryData.policyInitiatives || policies.initiatives || [];
+        const policyAssignments = inventoryData.policyAssignments || policies.assignments || [];
+        const expressRouteCircuits = networking.expressRouteCircuits || networking.expressRoutes || [];
+
         // Filter to include only resources and their details (no assessments or summaries)
         const resourcesOnlyData = {
-            timestamp: inventoryData.timestamp,
-            collectedBy: inventoryData.collectedBy,
-            tenant: inventoryData.tenant,
+            timestamp: inventoryData.timestamp || inventoryData.collectionTime,
+            collectedBy: inventoryData.collectedBy || 'Azure Landing Zone Inventory',
+            tenant: inventoryData.tenant || inventoryData.tenantId,
             resources: {
                 managementGroups: inventoryData.managementGroups || [],
                 subscriptions: inventoryData.subscriptions || [],
                 policies: {
-                    definitions: inventoryData.policyDefinitions || [],
-                    initiatives: inventoryData.policyInitiatives || [],
-                    assignments: inventoryData.policyAssignments || []
+                    definitions: policyDefinitions,
+                    initiatives: policyInitiatives,
+                    assignments: policyAssignments
                 },
                 roleAssignments: inventoryData.roleAssignments || [],
                 networking: {
-                    virtualNetworks: inventoryData.networking?.virtualNetworks || [],
-                    peerings: inventoryData.networking?.peerings || [],
-                    virtualWans: inventoryData.networking?.virtualWans || [],
-                    vpnGateways: inventoryData.networking?.vpnGateways || [],
-                    expressRouteCircuits: inventoryData.networking?.expressRouteCircuits || [],
-                    firewalls: inventoryData.networking?.firewalls || [],
-                    firewallPolicies: inventoryData.networking?.firewallPolicies || [],
-                    networkSecurityGroups: inventoryData.networking?.networkSecurityGroups || [],
-                    privateDnsZones: inventoryData.networking?.privateDnsZones || [],
-                    privateEndpoints: inventoryData.networking?.privateEndpoints || []
+                    virtualNetworks,
+                    subnets: asArray(networking.subnets),
+                    routeTables: asArray(networking.routeTables),
+                    peerings: networking.peerings || [],
+                    virtualWans: networking.virtualWans || [],
+                    virtualHubs: asArray(networking.virtualHubs),
+                    vpnGateways: networking.vpnGateways || [],
+                    expressRouteCircuits,
+                    firewalls: networking.firewalls || [],
+                    firewallPolicies: networking.firewallPolicies || [],
+                    networkSecurityGroups: asArray(networking.networkSecurityGroups),
+                    privateDnsZones: networking.privateDnsZones || [],
+                    privateEndpoints: networking.privateEndpoints || []
                 },
-                virtualMachines: inventoryData.virtualMachines || [],
+                virtualMachines,
                 governance: {
                     budgets: inventoryData.governance?.budgets || [],
                     locks: inventoryData.governance?.locks || [],
@@ -1053,18 +1230,23 @@ function exportToJSON() {
                 totalResources: {
                     managementGroups: (inventoryData.managementGroups || []).length,
                     subscriptions: (inventoryData.subscriptions || []).length,
-                    policyDefinitions: (inventoryData.policyDefinitions || []).length,
-                    policyInitiatives: (inventoryData.policyInitiatives || []).length,
-                    policyAssignments: (inventoryData.policyAssignments || []).length,
+                    policyDefinitions: policyDefinitions.length,
+                    policyInitiatives: policyInitiatives.length,
+                    policyAssignments: policyAssignments.length,
                     roleAssignments: (inventoryData.roleAssignments || []).length,
-                    virtualNetworks: (inventoryData.networking?.virtualNetworks || []).length,
-                    peerings: (inventoryData.networking?.peerings || []).length,
-                    virtualMachines: (inventoryData.virtualMachines || []).length,
+                    virtualNetworks: virtualNetworks.length,
+                    subnets: asArray(networking.subnets).length,
+                    routeTables: asArray(networking.routeTables).length,
+                    peerings: (networking.peerings || []).length,
+                    virtualWans: (networking.virtualWans || []).length,
+                    virtualHubs: asArray(networking.virtualHubs).length,
+                    networkSecurityGroups: asArray(networking.networkSecurityGroups).length,
+                    virtualMachines: virtualMachines.length,
                     budgets: (inventoryData.governance?.budgets || []).length,
                     locks: (inventoryData.governance?.locks || []).length
                 },
                 exportedAt: new Date().toISOString(),
-                exportVersion: '1.0.0'
+                exportVersion: '1.2.0'
             }
         };
         
@@ -1114,25 +1296,77 @@ async function exportToPDF() {
     try {
         const { jsPDF } = window.jspdf;
         const pdf = new jsPDF('p', 'mm', 'a4');
-        
+
+        const brandColors = {
+            navy: [14, 42, 71],
+            navyMedium: [32, 68, 111],
+            azure: [31, 143, 255],
+            azureDark: [11, 95, 216],
+            paperTint: [246, 248, 251],
+            divider: [228, 234, 241],
+            muted: [91, 114, 144]
+        };
+
+        pdf.setProperties({
+            title: 'Azure Landing Zone Assessment Report',
+            subject: 'Azure Landing Zone inventory and CAF/WAF assessment',
+            author: 'GetToTheCloud',
+            creator: 'Azure Landing Zone Documenter'
+        });
+
+        async function loadReportLogo() {
+            try {
+                const response = await fetch('gettothecloud-logo.webp', { cache: 'force-cache' });
+                if (!response.ok) return null;
+                const logoBlob = await response.blob();
+                return await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                        const image = new Image();
+                        image.onload = () => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = image.naturalWidth || image.width;
+                            canvas.height = image.naturalHeight || image.height;
+                            const context = canvas.getContext('2d');
+                            if (!context) {
+                                reject(new Error('Canvas context is unavailable'));
+                                return;
+                            }
+                            context.drawImage(image, 0, 0);
+                            resolve(canvas.toDataURL('image/png'));
+                        };
+                        image.onerror = reject;
+                        image.src = reader.result;
+                    };
+                    reader.onerror = reject;
+                    reader.readAsDataURL(logoBlob);
+                });
+            } catch (error) {
+                console.warn('Report logo could not be loaded:', error);
+                return null;
+            }
+        }
+
+        const logoImage = await loadReportLogo();
+        const pageWidth = 210;
+        const pageHeight = 297;
+        const margin = 15;
+        const maxWidth = pageWidth - (margin * 2);
         let yPos = 20;
         const lineHeight = 6;
-        const pageHeight = 280;
-        const margin = 20;
-        const maxWidth = 170;
-        
+
         // Helper function to add text with word wrap
         function addText(text, fontSize = 10, isBold = false, color = [0, 0, 0]) {
+            if (yPos > pageHeight - 15) {
+                pdf.addPage();
+                yPos = 20;
+            }
             pdf.setFontSize(fontSize);
             pdf.setFont(undefined, isBold ? 'bold' : 'normal');
             pdf.setTextColor(...color);
             
             const lines = pdf.splitTextToSize(text, maxWidth);
             lines.forEach(line => {
-                if (yPos > pageHeight) {
-                    pdf.addPage();
-                    yPos = 20;
-                }
                 pdf.text(line, margin, yPos);
                 yPos += lineHeight;
             });
@@ -1145,7 +1379,7 @@ async function exportToPDF() {
                 yPos = 20;
             }
             yPos += 5;
-            addText(title, 14, true, [0, 120, 212]);
+            addText(title, 14, true, brandColors.azureDark);
             yPos += 2;
             addText(text, 10, false);
             yPos += 5;
@@ -1156,9 +1390,15 @@ async function exportToPDF() {
                 pdf.addPage();
                 yPos = 20;
             }
-            yPos += 3;
-            addText(title, 11, true, [0, 120, 212]);
-            yPos += 2;
+            pdf.setFontSize(11);
+            pdf.setFont(undefined, 'bold');
+            pdf.setTextColor(...brandColors.navyMedium);
+            pdf.text(title, margin, yPos);
+            yPos += 10;
+            pdf.setDrawColor(...brandColors.azure);
+            pdf.setLineWidth(0.45);
+            pdf.line(margin, yPos - 4, pageWidth - margin, yPos - 4);
+            pdf.setTextColor(0, 0, 0);
         }
         
         function addBullet(text, indent = 0) {
@@ -1215,7 +1455,7 @@ async function exportToPDF() {
             }
             
             // Draw header
-            pdf.setFillColor(0, 120, 212);
+            pdf.setFillColor(...brandColors.navy);
             pdf.rect(tableX, yPos, tableWidth, 7, 'F');
             
             pdf.setTextColor(255, 255, 255);
@@ -1241,7 +1481,7 @@ async function exportToPDF() {
                     yPos = 20;
                     
                     // Redraw header on new page
-                    pdf.setFillColor(0, 120, 212);
+                    pdf.setFillColor(...brandColors.navy);
                     pdf.rect(tableX, yPos, tableWidth, 7, 'F');
                     pdf.setTextColor(255, 255, 255);
                     pdf.setFontSize(8);
@@ -1261,9 +1501,12 @@ async function exportToPDF() {
                 
                 // Alternate row colors
                 if (rowIndex % 2 === 0) {
-                    pdf.setFillColor(245, 248, 250);
+                    pdf.setFillColor(...brandColors.paperTint);
                     pdf.rect(tableX, yPos, tableWidth, 6, 'F');
                 }
+
+                pdf.setDrawColor(...brandColors.divider);
+                pdf.rect(tableX, yPos, tableWidth, 6, 'S');
                 
                 xOffset = tableX + 1;
                 row.forEach((cell, i) => {
@@ -1280,32 +1523,50 @@ async function exportToPDF() {
         }
         
         // Cover Page
+        pdf.setFillColor(...brandColors.paperTint);
+        pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+        pdf.setFillColor(...brandColors.navy);
+        pdf.rect(0, 0, pageWidth, 4, 'F');
+        pdf.setFillColor(...brandColors.azure);
+        pdf.rect(0, 4, pageWidth, 1.5, 'F');
+
+        if (logoImage) {
+            pdf.addImage(logoImage, 'PNG', margin, 16, 100, 20.5);
+        }
+
+        yPos = 70;
         pdf.setFontSize(24);
         pdf.setFont(undefined, 'bold');
-        pdf.setTextColor(0, 120, 212);
+        pdf.setTextColor(...brandColors.navy);
         pdf.text('Azure Landing Zone', margin, yPos);
         yPos += 10;
+        pdf.setTextColor(...brandColors.azureDark);
         pdf.text('Assessment Report', margin, yPos);
-        yPos += 20;
+        yPos += 15;
         
         pdf.setFontSize(12);
         pdf.setFont(undefined, 'normal');
-        pdf.setTextColor(0, 0, 0);
+        pdf.setTextColor(...brandColors.navyMedium);
         pdf.text(`Generated: ${new Date().toLocaleString()}`, margin, yPos);
-        yPos += 8;
-        pdf.text(`Version: ${inventoryData.version || 'unknown'} (App: ${APP_VERSION})`, margin, yPos);
-        yPos += 8;
+        yPos += 7;
+        pdf.setFontSize(10);
+        pdf.setTextColor(...brandColors.muted);
+        pdf.text(`Report Version: ${APP_VERSION}`, margin, yPos);
+        pdf.setTextColor(...brandColors.navy);
+        pdf.setFontSize(12);
+        yPos += 10;
         pdf.text(`Tenant ID: ${inventoryData.tenantId || 'N/A'}`, margin, yPos);
-        yPos += 8;
+        yPos += 10;
         
         const summary = inventoryData.summary || {};
         pdf.text(`Total Subscriptions: ${summary.totalSubscriptions || 0}`, margin, yPos);
         yPos += 6;
         pdf.text(`Total Resources Analyzed: Management Groups, Policies, Networks, Governance`, margin, yPos);
-        yPos += 15;
+        yPos += 20;
         
         pdf.setFontSize(10);
         pdf.setFont(undefined, 'italic');
+        pdf.setTextColor(...brandColors.navy);
         addText('This report provides a comprehensive assessment of your Azure Landing Zone implementation against Microsoft Cloud Adoption Framework (CAF) and Well-Architected Framework (WAF) best practices.');
         yPos += 10;
         
@@ -1313,7 +1574,7 @@ async function exportToPDF() {
         pdf.addPage();
         yPos = 20;
         
-        addText('EXECUTIVE SUMMARY', 16, true, [0, 120, 212]);
+        addText('EXECUTIVE SUMMARY', 16, true, brandColors.azureDark);
         yPos += 5;
         
         if (inventoryData.explanations) {
@@ -1355,7 +1616,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('CLOUD ADOPTION FRAMEWORK ASSESSMENT', 16, true, [0, 120, 212]);
+            addText('CLOUD ADOPTION FRAMEWORK ASSESSMENT', 16, true, brandColors.azureDark);
             yPos += 5;
             
             const bp = inventoryData.bestPractices;
@@ -1472,7 +1733,7 @@ async function exportToPDF() {
                 pdf.addPage();
                 yPos = 20;
                 
-                addText('RECOMMENDED ACTIONS', 14, true, [0, 120, 212]);
+                addText('RECOMMENDED ACTIONS', 14, true, brandColors.azureDark);
                 yPos += 5;
                 
                 addText('Based on the CAF assessment, the following actions are recommended to improve your Azure Landing Zone implementation:', 10, false);
@@ -1508,7 +1769,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('WELL-ARCHITECTED FRAMEWORK ALIGNMENT', 14, true, [0, 120, 212]);
+            addText('WELL-ARCHITECTED FRAMEWORK ALIGNMENT', 14, true, brandColors.azureDark);
             yPos += 5;
             
             addText('This section maps your Azure Landing Zone implementation to the five pillars of the Microsoft Azure Well-Architected Framework (WAF).', 10, false);
@@ -1576,7 +1837,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('MANAGEMENT GROUP HIERARCHY', 14, true, [0, 120, 212]);
+            addText('MANAGEMENT GROUP HIERARCHY', 14, true, brandColors.azureDark);
             yPos += 5;
             
             if (inventoryData.explanations?.managementGroups) {
@@ -1609,7 +1870,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('SUBSCRIPTION INVENTORY', 14, true, [0, 120, 212]);
+            addText('SUBSCRIPTION INVENTORY', 14, true, brandColors.azureDark);
             yPos += 5;
             
             if (inventoryData.explanations?.subscriptions) {
@@ -1647,7 +1908,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('AZURE POLICY CONFIGURATION', 14, true, [0, 120, 212]);
+            addText('AZURE POLICY CONFIGURATION', 14, true, brandColors.azureDark);
             yPos += 5;
             
             if (inventoryData.explanations?.policies) {
@@ -1691,7 +1952,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('ROLE-BASED ACCESS CONTROL (RBAC)', 14, true, [0, 120, 212]);
+            addText('ROLE-BASED ACCESS CONTROL (RBAC)', 14, true, brandColors.azureDark);
             yPos += 5;
             
             if (inventoryData.explanations?.roleAssignments) {
@@ -1718,11 +1979,11 @@ async function exportToPDF() {
         }
         
         // Networking Details
-        if (summary.totalVNets > 0) {
+        if (summary.totalVNets > 0 || asArray(inventoryData.networking?.subnets).length > 0 || asArray(inventoryData.networking?.routeTables).length > 0 || asArray(inventoryData.networking?.virtualHubs).length > 0) {
             pdf.addPage();
             yPos = 20;
             
-            addText('NETWORK ARCHITECTURE', 14, true, [0, 120, 212]);
+            addText('NETWORK ARCHITECTURE', 14, true, brandColors.azureDark);
             yPos += 5;
             
             if (inventoryData.explanations?.networking) {
@@ -1754,6 +2015,41 @@ async function exportToPDF() {
                     ['Name', 'Location', 'Hubs', 'Branch-to-Branch', 'VNet-to-VNet', 'VPN Encryption', 'Subscription'],
                     vwanRows,
                     [30, 20, 12, 22, 20, 22, 34]
+                );
+                yPos += 5;
+            }
+
+            // Virtual Hub Table
+            const virtualHubs = asArray(inventoryData.networking?.virtualHubs);
+            if (virtualHubs.length > 0) {
+                if (yPos > pageHeight - 40) {
+                    pdf.addPage();
+                    yPos = 20;
+                }
+
+                addSubSection(`Virtual Hubs (${virtualHubs.length})`);
+                yPos += 2;
+
+                const hubRows = virtualHubs.map(hub => {
+                    const connectedVNets = asArray(hub.vnetConnections)
+                        .map(connection => connection.remoteVNet || connection.name)
+                        .filter(Boolean)
+                        .join(', ') || 'None';
+                    return [
+                        hub.name || 'N/A',
+                        hub.location || 'N/A',
+                        hub.addressPrefix || 'N/A',
+                        hub.virtualWanName || 'Standalone',
+                        hub.routingState || 'N/A',
+                        connectedVNets,
+                        hub.subscription || 'N/A'
+                    ];
+                });
+
+                addTable(
+                    ['Hub Name', 'Location', 'Address Prefix', 'Virtual WAN', 'Routing', 'Connected VNets', 'Subscription'],
+                    hubRows,
+                    [28, 18, 25, 25, 18, 42, 24]
                 );
                 yPos += 5;
             }
@@ -1851,18 +2147,19 @@ async function exportToPDF() {
             }
             
             // Network Security Groups Table
-            if (inventoryData.networking?.networkSecurityGroups && inventoryData.networking.networkSecurityGroups.length > 0) {
+            const networkSecurityGroups = asArray(inventoryData.networking?.networkSecurityGroups);
+            if (networkSecurityGroups.length > 0) {
                 if (yPos > pageHeight - 40) {
                     pdf.addPage();
                     yPos = 20;
                 }
                 
-                addSubSection(`Network Security Groups (${inventoryData.networking.networkSecurityGroups.length})`);
+                addSubSection(`Network Security Groups (${networkSecurityGroups.length})`);
                 yPos += 2;
                 
-                const nsgRows = inventoryData.networking.networkSecurityGroups.map(nsg => {
-                    const subnets = nsg.associatedSubnets || [];
-                    const nics = nsg.associatedNICs || [];
+                const nsgRows = networkSecurityGroups.map(nsg => {
+                    const subnets = asArray(nsg.associatedSubnets);
+                    const nics = asArray(nsg.associatedNICs);
                     
                     let connections = '';
                     if (subnets.length > 0) {
@@ -1890,6 +2187,69 @@ async function exportToPDF() {
                     [40, 20, 15, 60, 35]
                 );
                 yPos += 5;
+
+                const nsgRuleRows = [];
+                const nsgConnectionRows = [];
+                networkSecurityGroups.forEach(nsg => {
+                    const addRuleRows = (rules, ruleSet) => {
+                        asArray(rules).forEach(rule => {
+                            nsgRuleRows.push([
+                                nsg.name || 'N/A',
+                                ruleSet,
+                                rule.name || 'N/A',
+                                rule.priority ?? 'N/A',
+                                `${rule.direction || 'N/A'}/${rule.access || 'N/A'}`,
+                                rule.protocol || 'N/A',
+                                [rule.sourceAddressPrefix, ...asArray(rule.sourceAddressPrefixes)].filter(Boolean).join(', ') || '*',
+                                [rule.destinationAddressPrefix, ...asArray(rule.destinationAddressPrefixes)].filter(Boolean).join(', ') || '*',
+                                [rule.sourcePortRange || asArray(rule.sourcePortRanges).join(', '), rule.destinationPortRange || asArray(rule.destinationPortRanges).join(', ')].filter(Boolean).join(' -> ') || '*',
+                                nsg.subscription || 'N/A'
+                            ]);
+                        });
+                    };
+
+                    addRuleRows(nsg.securityRules, 'Custom');
+                    addRuleRows(nsg.defaultSecurityRules, 'Default');
+
+                    asArray(nsg.subnetConnections).forEach(connection => {
+                        nsgConnectionRows.push([
+                            nsg.name || 'N/A',
+                            'Subnet',
+                            connection.displayName || connection.name || 'N/A',
+                            connection.id || 'N/A',
+                            nsg.subscription || 'N/A'
+                        ]);
+                    });
+                    asArray(nsg.nicConnections).forEach(connection => {
+                        nsgConnectionRows.push([
+                            nsg.name || 'N/A',
+                            'NIC',
+                            connection.name || 'N/A',
+                            connection.id || 'N/A',
+                            nsg.subscription || 'N/A'
+                        ]);
+                    });
+                });
+
+                if (nsgRuleRows.length > 0) {
+                    addSubSection(`NSG Rule Details (${nsgRuleRows.length})`);
+                    addTable(
+                        ['NSG', 'Set', 'Rule', 'Priority', 'Dir./Access', 'Protocol', 'Source', 'Destination', 'Ports', 'Subscription'],
+                        nsgRuleRows,
+                        [15, 10, 22, 10, 18, 12, 25, 25, 23, 20]
+                    );
+                    yPos += 5;
+                }
+
+                if (nsgConnectionRows.length > 0) {
+                    addSubSection(`NSG Associations (${nsgConnectionRows.length})`);
+                    addTable(
+                        ['NSG', 'Association', 'Resource', 'Resource ID', 'Subscription'],
+                        nsgConnectionRows,
+                        [28, 22, 42, 62, 26]
+                    );
+                    yPos += 5;
+                }
             }
             
             // Private Endpoints Table
@@ -1945,6 +2305,76 @@ async function exportToPDF() {
                 );
             }
             yPos += 5;
+
+            const networkSubnets = asArray(inventoryData.networking?.subnets);
+            if (networkSubnets.length > 0) {
+                addSubSection(`Subnets (${networkSubnets.length})`);
+                yPos += 2;
+
+                const subnetRows = networkSubnets.map(subnet => [
+                    subnet.name || 'N/A',
+                    subnet.vnetName || 'N/A',
+                    asArray(subnet.addressPrefixes).join(', ') || subnet.addressPrefix || 'N/A',
+                    subnet.routeTable || 'None',
+                    subnet.networkSecurityGroup || 'None',
+                    asArray(subnet.serviceEndpoints).join(', ') || 'None',
+                    subnet.subscription || 'N/A'
+                ]);
+
+                addTable(
+                    ['Subnet', 'VNet', 'Address Prefix', 'Route Table', 'NSG', 'Service Endpoints', 'Subscription'],
+                    subnetRows,
+                    [26, 24, 30, 25, 22, 30, 23]
+                );
+                yPos += 5;
+            }
+
+            const networkRouteTables = asArray(inventoryData.networking?.routeTables);
+            if (networkRouteTables.length > 0) {
+                addSubSection(`Route Tables (${networkRouteTables.length})`);
+                yPos += 2;
+
+                const routeTableRows = networkRouteTables.map(routeTable => {
+                    const subnets = asArray(routeTable.associatedSubnets)
+                        .map(subnet => subnet.displayName || `${subnet.vnetName || 'N/A'}/${subnet.name || 'N/A'}`)
+                        .join(', ') || 'None';
+                    return [
+                        routeTable.name || 'N/A',
+                        routeTable.location || 'N/A',
+                        routeTable.disableBgpRoutePropagation ? 'Disabled' : 'Enabled',
+                        routeTable.routeCount || asArray(routeTable.routes).length,
+                        subnets,
+                        routeTable.subscription || 'N/A'
+                    ];
+                });
+
+                addTable(
+                    ['Route Table', 'Location', 'BGP Propagation', 'UDR Routes', 'Associated Subnets', 'Subscription'],
+                    routeTableRows,
+                    [32, 20, 24, 18, 55, 31]
+                );
+                yPos += 5;
+
+                const routeRows = networkRouteTables.flatMap(routeTable =>
+                    asArray(routeTable.routes).map(route => [
+                        routeTable.name || 'N/A',
+                        route.name || 'N/A',
+                        route.addressPrefix || 'N/A',
+                        route.nextHopType || 'N/A',
+                        route.nextHopIpAddress || 'N/A',
+                        routeTable.subscription || 'N/A'
+                    ])
+                );
+                if (routeRows.length > 0) {
+                    addSubSection(`UDR Route Details (${routeRows.length})`);
+                    addTable(
+                        ['Route Table', 'Route', 'Address Prefix', 'Next Hop Type', 'Next Hop IP', 'Subscription'],
+                        routeRows,
+                        [30, 27, 35, 30, 28, 30]
+                    );
+                    yPos += 5;
+                }
+            }
             
             // VNet Peerings Table
             if (summary.totalPeerings > 0 && inventoryData.networking?.peerings) {
@@ -2055,7 +2485,7 @@ async function exportToPDF() {
             pdf.addPage();
             yPos = 20;
             
-            addText('GOVERNANCE AND COMPLIANCE', 14, true, [0, 120, 212]);
+            addText('GOVERNANCE AND COMPLIANCE', 14, true, brandColors.azureDark);
             yPos += 5;
             
             if (inventoryData.explanations?.governance) {
@@ -2123,7 +2553,7 @@ async function exportToPDF() {
         pdf.addPage();
         yPos = 20;
         
-        addText('REFERENCES AND RESOURCES', 14, true, [0, 120, 212]);
+        addText('REFERENCES AND RESOURCES', 14, true, brandColors.azureDark);
         yPos += 10;
         
         pdf.setFontSize(10);
@@ -2170,34 +2600,32 @@ async function exportToPDF() {
         addText('https://learn.microsoft.com/azure/architecture/');
         yPos += 15;
         
-        // Report Footer
-        pdf.setDrawColor(180, 180, 180);
-        pdf.line(margin, yPos, margin + maxWidth, yPos);
-        yPos += 7;
-        
-        pdf.setFontSize(8);
-        pdf.setFont(undefined, 'italic');
-        pdf.setTextColor(100, 100, 100);
-        pdf.text('Azure Landing Zone Assessment Report', margin, yPos);
-        pdf.text(`Generated: ${new Date().toLocaleString()}`, margin + maxWidth - 45, yPos);
-        
-        // Add page numbers and watermark to all pages
+        // Add branded headers, page numbers, and footers to all pages
         const pageCount = pdf.internal.getNumberOfPages();
         for (let i = 1; i <= pageCount; i++) {
             pdf.setPage(i);
-            
-            // Page number
+
+            const currentPageWidth = pdf.internal.pageSize.getWidth();
+            const currentPageHeight = pdf.internal.pageSize.getHeight();
+
+            if (i > 1) {
+                pdf.setFillColor(...brandColors.navy);
+                pdf.rect(0, 0, currentPageWidth, 10, 'F');
+                pdf.setFontSize(7);
+                pdf.setFont(undefined, 'bold');
+                pdf.setTextColor(255, 255, 255);
+                pdf.text('GETTOTHECLOUD  /  AZURE LANDING ZONE', margin, 6.5);
+            }
+
+            pdf.setDrawColor(...brandColors.azure);
+            pdf.setLineWidth(0.35);
+            pdf.line(margin, currentPageHeight - 12, currentPageWidth - margin, currentPageHeight - 12);
             pdf.setFontSize(8);
-            pdf.setTextColor(150, 150, 150);
-            pdf.text(`Page ${i} of ${pageCount}`, margin + maxWidth - 20, 290);
-            
-            // Watermark
+            pdf.setFont(undefined, 'normal');
+            pdf.setTextColor(...brandColors.muted);
+            pdf.text(`Page ${i} of ${pageCount}`, currentPageWidth - margin, currentPageHeight - 6, { align: 'right' });
             pdf.setFontSize(7);
-            pdf.setTextColor(180, 180, 180);
-            pdf.setFont(undefined, 'italic');
-            const watermarkText = 'Created by Alex ter Neuzen for https://www.gettothe.cloud';
-            const watermarkWidth = pdf.getTextWidth(watermarkText);
-            pdf.text(watermarkText, (210 - watermarkWidth) / 2, 293);
+            pdf.text('GetToTheCloud  |  www.gettothe.cloud', margin, currentPageHeight - 6);
         }
         
         // Save with timestamp

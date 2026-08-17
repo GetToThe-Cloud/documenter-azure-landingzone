@@ -495,6 +495,67 @@
                     </div>
 
                     <div class="subsection">
+                        <h3>Subnets</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>VNet</th>
+                                        <th>Address Prefix</th>
+                                        <th>Route Table</th>
+                                        <th>NSG</th>
+                                        <th>Service Endpoints</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="subnetsTableBody">
+                                    <tr><td colspan="7">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Route Tables and UDRs</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Route Table</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>BGP Propagation</th>
+                                        <th>UDR Routes</th>
+                                        <th>Associated Subnets</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="routeTablesTableBody">
+                                    <tr><td colspan="7">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="data-table-container" style="margin-top: 1rem;">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Route Table</th>
+                                        <th>Route</th>
+                                        <th>Address Prefix</th>
+                                        <th>Next Hop Type</th>
+                                        <th>Next Hop IP</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="udrRoutesTableBody">
+                                    <tr><td colspan="6">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
                         <h3>VPN Gateways</h3>
                         <div class="data-table-container">
                             <table class="data-table">
@@ -532,6 +593,29 @@
                                 </thead>
                                 <tbody id="virtualWansTableBody">
                                     <tr><td colspan="7">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Virtual Hubs</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Name</th>
+                                        <th>Resource Group</th>
+                                        <th>Location</th>
+                                        <th>Address Prefix</th>
+                                        <th>Virtual WAN</th>
+                                        <th>Routing</th>
+                                        <th>Connected VNets</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="virtualHubsTableBody">
+                                    <tr><td colspan="8">Loading...</td></tr>
                                 </tbody>
                             </table>
                         </div>
@@ -605,11 +689,59 @@
                                         <th>Name</th>
                                         <th>Resource Group</th>
                                         <th>Location</th>
-                                        <th>Security Rules</th>
+                                        <th>Custom Rules</th>
+                                        <th>Default Rules</th>
+                                        <th>Subnets</th>
+                                        <th>NICs</th>
                                         <th>Subscription</th>
                                     </tr>
                                 </thead>
                                 <tbody id="nsgsTableBody">
+                                    <tr><td colspan="8">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Network Security Group Rules</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>NSG</th>
+                                        <th>Set</th>
+                                        <th>Rule</th>
+                                        <th>Priority</th>
+                                        <th>Direction / Access</th>
+                                        <th>Protocol</th>
+                                        <th>Source</th>
+                                        <th>Destination</th>
+                                        <th>Ports</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nsgRulesTableBody">
+                                    <tr><td colspan="10">Loading...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <div class="subsection">
+                        <h3>Network Security Group Associations</h3>
+                        <div class="data-table-container">
+                            <table class="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>NSG</th>
+                                        <th>Association</th>
+                                        <th>Resource</th>
+                                        <th>Resource ID</th>
+                                        <th>Subscription</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="nsgAssociationsTableBody">
                                     <tr><td colspan="5">Loading...</td></tr>
                                 </tbody>
                             </table>

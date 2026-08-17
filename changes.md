@@ -1,12 +1,20 @@
 # Changes
 
-## v1.1.1 — Policy and RBAC inventory fix
+## v1.3.0 — Detailed networking inventory and export
 
-- Scoped policy and role assignment collection to every collected management group and subscription.
-- De-duplicated inherited policy assignments by `PolicyAssignmentId` so governance totals reflect distinct assignments.
-- De-duplicated role assignments by assignment ID, with stable fallbacks when an ID is unavailable.
+- Added flat subnet inventory with address prefixes, delegations, service endpoints, route-table references, and NSG references.
+- Added route-table inventory with user-defined routes, next-hop details, BGP propagation, and associated subnet links.
+- Added direct Virtual Hub inventory with Virtual WAN references, routing state, and connected VNet links.
+- Fixed Virtual Hub discovery by resolving each hub with its resource group instead of relying on an unsupported tenant-wide `Get-AzVirtualHub` call.
+- Added complete custom and default NSG rule records plus explicit subnet and NIC association records.
+- Added dashboard and branded PDF tables for subnets, UDRs, Virtual Hubs, NSG rules, and NSG associations.
 
----
+## v1.2.0 — Report styling and server shutdown (2026-08-12)
+
+- Added reliable asynchronous Ctrl+C shutdown for the PowerShell HttpListener.
+- Added the packaged GetToTheCloud wordmark and a binary logo route for PDF generation.
+- Recreated the AVD PDF styling with a branded cover, navy/azure palette, section dividers, interior headers, and responsive page footers.
+- Kept the existing Landing Zone CAF, WAF, inventory, and recommendation content unchanged.
 
 ## v1.1.0 — Security hardening release
 

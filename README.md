@@ -4,7 +4,7 @@ A comprehensive web-based inventory and assessment dashboard for Azure Landing Z
 
 ![Azure Landing Zone](https://img.shields.io/badge/Azure-Landing%20Zone-0078D4?style=for-the-badge&logo=microsoft-azure)
 ![PowerShell](https://img.shields.io/badge/PowerShell-7+-5391FE?style=for-the-badge&logo=powershell)
-![Version](https://img.shields.io/badge/Version-1.1.1-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-1.0.0-blue?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)
 
 ## 🌟 Overview
@@ -13,11 +13,11 @@ The Azure Landing Zone Inventory Tool automatically collects and analyzes your A
 - **Complete Infrastructure Inventory**: All resources across management groups and subscriptions
 - **CAF Compliance Assessment**: Automated evaluation against Cloud Adoption Framework principles
 - **WAF Alignment Scoring**: Assessment across 5 pillars (Reliability, Security, Cost, Operations, Performance)
-- **Professional PDF Reports**: Comprehensive documentation with tables, charts, and recommendations
+- **Professional PDF Reports**: GetToTheCloud-branded documentation with tables, assessments, and recommendations
 - **Real-Time Dashboard**: Interactive web interface with detailed resource information
 - **Automatic Module Management**: Installs missing required PowerShell modules
 
-**Version:** 1.1.1
+**Version:** 1.0.0  
 **Created by:** Alex ter Neuzen for [GetToTheCloud](https://www.gettothe.cloud)
 
 ## ✨ Key Features
@@ -28,14 +28,15 @@ The Azure Landing Zone Inventory Tool automatically collects and analyzes your A
 - **Azure Policy**: Definitions (custom + built-in), initiatives, and assignments
 - **RBAC**: Complete role assignment mapping with principal details
 - **Networking**: 
-  - Virtual Networks with subnets and address spaces
+  - Virtual Networks and flat subnet inventory with address prefixes, service endpoints, delegations, route tables, and NSGs
+  - Route tables with user-defined routes, next hops, BGP propagation, and associated subnets
   - VNet Peerings with connectivity status and traffic settings
-  - Virtual WANs with hub configurations
+  - Virtual WANs and Virtual Hubs with hub-to-VNet connections and routing state
   - VPN Gateways with SKUs, BGP, and active-active settings
   - ExpressRoute Circuits with bandwidth and provider details
   - Azure Firewalls with tier and threat intelligence modes
   - Firewall Policies with rule collection statistics and IDS/IPS
-  - Network Security Groups with rule counts, **associated subnets and NICs**
+  - Network Security Groups with complete custom/default rules and **associated subnets and NICs**
   - Private DNS Zones with **VNet links and record sets**
   - Private Endpoints with **connected PaaS resources, subnet placement, and private IPs**
 - **Compute**: Virtual Machines with power states and network details
@@ -345,6 +346,7 @@ pwsh -File Start-AzureLandingZoneServer.ps1
    - Automatic module installation/update (2-5 minutes first time)
    - Azure authentication status check
    - Server starts on http://localhost:8080
+    - Press Ctrl+C in the same terminal to stop the server cleanly
 
 2. **Web Interface**:
    - Open browser to `http://localhost:8080`
@@ -370,6 +372,7 @@ azurelandingzone-inventory/
 ├── index.html                           # Dashboard interface with progress bar
 ├── styles.css                           # UI styling
 ├── app.js                               # Frontend logic, PDF & JSON export
+├── gettothecloud-logo.webp              # Packaged PDF report wordmark
 ├── start.sh                            # Unix startup script
 ├── start.cmd                           # Windows startup script
 └── README.md                           # This file
@@ -481,7 +484,7 @@ Complete network infrastructure visibility:
 Generated reports include:
 
 ### 📑 Cover Page
-- Tool name and version (v1.1.1)
+- Tool name and version (v1.0.0)
 - Generation timestamp
 - Tenant ID
 - Azure Landing Zone branding
@@ -538,8 +541,10 @@ Structured data tables for:
 - WAF guidance
 - Best practice references
 
-### 🔖 Custom Watermark
-Every page footer: "Created by Alex ter Neuzen for https://www.gettothe.cloud"
+### 🔖 Report Branding
+- Navy interior page headers with the report name
+- Azure divider rules and responsive page numbers
+- GetToTheCloud footer on every page
 
 ## 🔧 Configuration
 

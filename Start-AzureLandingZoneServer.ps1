@@ -19,6 +19,52 @@ param(
 # Import required modules
 $ErrorActionPreference = "Stop"
 
+if (-not ('LandingZoneInventoryShutdownHandlerAsync' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Net;
+
+public static class LandingZoneInventoryShutdownHandlerAsync
+{
+    private static HttpListener listener;
+    private static volatile bool shutdownRequested;
+
+    public static ConsoleCancelEventHandler Register(HttpListener value)
+    {
+        listener = value;
+        shutdownRequested = false;
+        ConsoleCancelEventHandler handler = HandleCancelKeyPress;
+        Console.CancelKeyPress += handler;
+        return handler;
+    }
+
+    public static void Unregister(ConsoleCancelEventHandler handler)
+    {
+        Console.CancelKeyPress -= handler;
+        listener = null;
+        shutdownRequested = false;
+    }
+
+    public static bool IsShutdownRequested()
+    {
+        return shutdownRequested;
+    }
+
+    private static void HandleCancelKeyPress(object sender, ConsoleCancelEventArgs eventArgs)
+    {
+        eventArgs.Cancel = true;
+        shutdownRequested = true;
+        HttpListener currentListener = listener;
+        listener = null;
+        if (currentListener != null && currentListener.IsListening)
+        {
+            currentListener.Stop();
+        }
+    }
+}
+'@
+}
+
 Write-Host "🚀 Starting Azure Landing Zone Inventory Server..." -ForegroundColor Cyan
 
 # Check PowerShell version
@@ -154,17 +200,44 @@ if ($script:IsAuthenticated) {
 
 # HTTP Listener
 $listener = New-Object System.Net.HttpListener
-$listener.Prefixes.Add("http://localhost:$Port/")
-$listener.Start()
-
-Write-Host "🌐 Server started at http://localhost:$Port" -ForegroundColor Green
-Write-Host "📊 Access the Azure Landing Zone Inventory Dashboard in your browser" -ForegroundColor Cyan
-Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Gray
-Write-Host ""
-
+$cancelKeyPressHandler = [LandingZoneInventoryShutdownHandlerAsync]::Register($listener)
 try {
-    while ($listener.IsListening) {
-        $context = $listener.GetContext()
+    $listener.Prefixes.Add("http://localhost:$Port/")
+    $listener.Start()
+
+    Write-Host "🌐 Server started at http://localhost:$Port" -ForegroundColor Green
+    Write-Host "📊 Access the Azure Landing Zone Inventory Dashboard in your browser" -ForegroundColor Cyan
+    Write-Host "Press Ctrl+C to stop the server" -ForegroundColor Gray
+    Write-Host ""
+
+    while ($listener.IsListening -and -not [LandingZoneInventoryShutdownHandlerAsync]::IsShutdownRequested()) {
+        try {
+            $contextTask = $listener.GetContextAsync()
+            while (-not $contextTask.Wait(250)) {
+                if ([LandingZoneInventoryShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                    break
+                }
+            }
+            if ([LandingZoneInventoryShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            $context = $contextTask.GetAwaiter().GetResult()
+        } catch [System.Net.HttpListenerException] {
+            if ([LandingZoneInventoryShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            throw
+        } catch [System.ObjectDisposedException] {
+            if ([LandingZoneInventoryShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            throw
+        } catch [System.AggregateException] {
+            if ([LandingZoneInventoryShutdownHandlerAsync]::IsShutdownRequested() -or -not $listener.IsListening) {
+                break
+            }
+            throw
+        }
         $request = $context.Request
         $response = $context.Response
         
@@ -175,6 +248,7 @@ try {
         
         # Content type and response
         $content = ""
+        $responseBytes = $null
         $contentType = "text/html; charset=utf-8"
         
         # CSRF guard: state-changing endpoints must be POSTed by the dashboard JS
@@ -215,6 +289,17 @@ try {
                 if (Test-Path $jsPath) {
                     $content = Get-Content $jsPath -Raw
                     $contentType = "application/javascript"
+                }
+            }
+
+            '^/gettothecloud-logo\.webp$' {
+                $logoPath = Join-Path $PSScriptRoot "gettothecloud-logo.webp"
+                if (Test-Path $logoPath) {
+                    $responseBytes = [System.IO.File]::ReadAllBytes($logoPath)
+                    $contentType = "image/webp"
+                } else {
+                    $response.StatusCode = 404
+                    $content = "Logo not found"
                 }
             }
             
@@ -478,7 +563,11 @@ try {
         }
         
         # Send response (same-origin only — deliberately no CORS headers)
-        $buffer = [System.Text.Encoding]::UTF8.GetBytes($content)
+        $buffer = if ($null -ne $responseBytes) {
+            $responseBytes
+        } else {
+            [System.Text.Encoding]::UTF8.GetBytes($content)
+        }
         $response.ContentLength64 = $buffer.Length
         $response.ContentType = $contentType
         $response.Headers.Add("X-Content-Type-Options", "nosniff")
@@ -487,8 +576,11 @@ try {
     }
 }
 finally {
+    [LandingZoneInventoryShutdownHandlerAsync]::Unregister($cancelKeyPressHandler)
     Write-Host "`n🛑 Stopping server..." -ForegroundColor Yellow
-    $listener.Stop()
+    if ($listener.IsListening) {
+        $listener.Stop()
+    }
     $listener.Close()
     # Remove any leftover Azure context (token) file
     if (Test-Path $script:AzContextFilePath) {
