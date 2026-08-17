@@ -175,6 +175,7 @@ function Get-AzureLandingZoneInventory {
         }
         governance = @{
             budgets = @()
+            defenderPlans = @()
             tags = @{}
             locks = @()
             diagnosticSettings = @()
@@ -1497,6 +1498,18 @@ Move Strategy:
                         $inventory.summary.totalBudgets += $budgets.Count
                     }
                 } catch {}
+
+                # Defender for Cloud pricing plans
+                try {
+                    $defenderResources = @(Get-AzResource -ResourceType 'Microsoft.Security/pricings' -ErrorAction SilentlyContinue)
+                    foreach ($defenderResource in $defenderResources) {
+                        $inventory.governance.defenderPlans += @{
+                            name = $defenderResource.Name
+                            id = $defenderResource.ResourceId
+                            subscription = $sub.Name
+                        }
+                    }
+                } catch {}
                 
                 # Resource Locks (subscription, resource groups, and resources)
                 Write-Host "      • Collecting resource locks..." -ForegroundColor Gray
@@ -1675,6 +1688,7 @@ function Get-LandingZoneBestPracticesAssessment {
         fwCount = if ($Inventory.networking.firewalls) { $Inventory.networking.firewalls.Count } else { 0 }
         expressRouteCount = if ($Inventory.networking.expressRoutes) { $Inventory.networking.expressRoutes.Count } else { 0 }
         privateDnsCount = if ($Inventory.networking.privateDnsZones) { $Inventory.networking.privateDnsZones.Count } else { 0 }
+        defenderCount = if ($Inventory.governance.defenderPlans) { $Inventory.governance.defenderPlans.Count } else { 0 }
         nsgEligibleCount = @($Inventory.networking.subnets | Where-Object {
             $_.name -and $_.name -notmatch '^(AzureFirewallSubnet|GatewaySubnet|RouteServerSubnet)$'
         }).Count

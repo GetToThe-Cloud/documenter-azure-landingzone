@@ -151,14 +151,14 @@
         {
           "id": "sec-002",
           "name": "Network Micro-segmentation",
-          "description": "NSGs protect eligible subnets, or centralized Azure Firewall protection is deployed",
-          "condition": "nsgEligibleCount == 0 OR nsgProtectedCount >= nsgEligibleCount OR fwCount > 0",
+          "description": "NSGs protect eligible subnets, or centralized Azure Firewall/Defender for Cloud protection is deployed",
+          "condition": "nsgEligibleCount == 0 OR nsgProtectedCount >= nsgEligibleCount OR fwCount > 0 OR defenderCount > 0",
           "points": 5,
           "partialPoints": {
             "condition": "nsgProtectedCount > 0",
             "points": 3
           },
-          "recommendation": "Deploy NSGs on eligible workload subnets or use Azure Firewall for centralized protection; NSGs are not supported on AzureFirewallSubnet, GatewaySubnet, or RouteServerSubnet"
+          "recommendation": "Deploy NSGs on eligible workload subnets or use Azure Firewall/Defender for Cloud for centralized protection; NSGs are not supported on AzureFirewallSubnet, GatewaySubnet, or RouteServerSubnet"
         }
       ]
     },

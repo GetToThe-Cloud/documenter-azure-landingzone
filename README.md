@@ -169,6 +169,7 @@ To modify the assessment calculations:
 - `fwCount` - Azure Firewalls
 - `expressRouteCount` - ExpressRoute circuits
 - `privateDnsCount` - Private DNS zones
+- `defenderCount` - Defender for Cloud pricing plans
 - `locks` - Resource locks
 - `nsgCount` - Network security groups
 - `budgets` - Cost management budgets
