@@ -1,7 +1,7 @@
 {
-  "version": "1.0.0",
+  "version": "1.3.0",
   "description": "Azure Landing Zone CAF/WAF Assessment Scoring Configuration",
-  "lastUpdated": "2026-03-06",
+  "lastUpdated": "2026-08-17",
   "categories": {
     "managementGroupHierarchy": {
       "name": "Management Group Hierarchy",
