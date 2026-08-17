@@ -15,6 +15,7 @@
         @{ ModuleName = 'Az.Resources';     ModuleVersion = '6.0.0' }
         @{ ModuleName = 'Az.Network';       ModuleVersion = '5.0.0' }
         @{ ModuleName = 'Az.PolicyInsights'; ModuleVersion = '1.0.0' }
+        @{ ModuleName = 'Az.Billing';       ModuleVersion = '2.0.0' }
     )
 
     # Exports

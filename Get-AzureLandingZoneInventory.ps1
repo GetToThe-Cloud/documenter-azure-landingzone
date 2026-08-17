@@ -1464,6 +1464,42 @@ Move Strategy:
         
         # Get Governance Resources
         Update-CollectionProgress -Step 9 -TotalSteps $totalSteps -Status 'Collecting Governance Resources...'
+
+        # Budgets are collected at billing-account scope because Billing Reader access
+        # does not necessarily grant subscription-level Microsoft.Consumption access.
+        try {
+            $billingAccounts = @(Get-AzBillingAccount -ErrorAction Stop)
+            foreach ($billingAccount in $billingAccounts) {
+                $billingAccountName = if ($billingAccount.Name) { $billingAccount.Name } else { $billingAccount.Id.Split('/')[-1] }
+                $nextLink = "https://management.azure.com/providers/Microsoft.Billing/billingAccounts/$([uri]::EscapeDataString($billingAccountName))/providers/Microsoft.Consumption/budgets?api-version=2023-05-01"
+
+                do {
+                    $budgetResponse = Invoke-AzRestMethod -Method GET -Uri $nextLink -ErrorAction Stop
+                    $budgetPayload = $budgetResponse.Content | ConvertFrom-Json
+                    foreach ($budget in @($budgetPayload.value)) {
+                        $properties = $budget.properties
+                        $inventory.governance.budgets += @{
+                            name = $budget.name
+                            amount = $properties.amount
+                            timeGrain = $properties.timeGrain
+                            timePeriod = @{
+                                startDate = $properties.timePeriod.startDate
+                                endDate = $properties.timePeriod.endDate
+                            }
+                            currentSpend = $properties.currentSpend.amount
+                            billingAccount = $billingAccountName
+                            scope = $budget.id
+                        }
+                    }
+                    $nextLink = $budgetPayload.nextLink
+                } while ($nextLink)
+            }
+            $inventory.summary.totalBudgets = @($inventory.governance.budgets).Count
+            Write-Host "      ✓ Collected $($inventory.summary.totalBudgets) budget(s) from $($billingAccounts.Count) billing account(s)" -ForegroundColor Green
+        } catch {
+            Write-Host "      ⚠️  Could not collect billing-account budgets: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+
         foreach ($sub in $subs) {
             try {
                 # Try to set context with better error handling
@@ -1478,27 +1514,6 @@ Move Strategy:
                     }
                 }
                 
-                # Budgets (requires Az.CostManagement module - skip if not available)
-                try {
-                    if (Get-Command Get-AzConsumptionBudget -ErrorAction SilentlyContinue) {
-                        $budgets = Get-AzConsumptionBudget -ErrorAction SilentlyContinue
-                        foreach ($budget in $budgets) {
-                            $inventory.governance.budgets += @{
-                                name = $budget.Name
-                                amount = $budget.Amount
-                                timeGrain = $budget.TimeGrain
-                                timePeriod = @{
-                                    startDate = $budget.TimePeriod.StartDate
-                                    endDate = $budget.TimePeriod.EndDate
-                                }
-                                currentSpend = $budget.CurrentSpend.Amount
-                                subscription = $sub.Name
-                            }
-                        }
-                        $inventory.summary.totalBudgets += $budgets.Count
-                    }
-                } catch {}
-
                 # Defender for Cloud pricing plans
                 try {
                     $defenderResources = @(Get-AzResource -ResourceType 'Microsoft.Security/pricings' -ErrorAction SilentlyContinue)

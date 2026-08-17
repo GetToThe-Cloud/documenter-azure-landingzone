@@ -84,7 +84,8 @@ $requiredModules = @(
     'Az.Accounts', 
     'Az.Resources', 
     'Az.Network', 
-    'Az.PolicyInsights'
+    'Az.PolicyInsights',
+    'Az.Billing'
 )
 
 function Install-RequiredModule {
@@ -406,7 +407,7 @@ try {
                             $inventoryScript = $inventoryModulePath
                             $script:CollectionPipeline.AddScript({
                                 param($scriptPath, $ctxPath)
-                                Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights -ErrorAction Stop
+                                Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights, Az.Billing -ErrorAction Stop
                                 Import-AzContext -Path $ctxPath -ErrorAction Stop | Out-Null
                                 # Context imported — remove the token file as soon as it is no longer needed
                                 Remove-Item $ctxPath -Force -ErrorAction SilentlyContinue
@@ -527,7 +528,7 @@ try {
                             $inventoryScript = $inventoryModulePath
                             $script:CollectionPipeline.AddScript({
                                 param($scriptPath, $ctxPath)
-                                Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights -ErrorAction Stop
+                                Import-Module Az.Accounts, Az.Resources, Az.Network, Az.PolicyInsights, Az.Billing -ErrorAction Stop
                                 Import-AzContext -Path $ctxPath -ErrorAction Stop | Out-Null
                                 # Context imported — remove the token file as soon as it is no longer needed
                                 Remove-Item $ctxPath -Force -ErrorAction SilentlyContinue

@@ -278,7 +278,8 @@ For **complete inventory** including management groups:
 | RBAC Roles | Reader | Subscription/MG | View role assignments |
 | Networking | Reader | Subscription(s) | VNets, Firewalls, VPN, etc. |
 | VMs & Compute | Reader | Subscription(s) | Virtual machines |
-| Governance | Reader | Subscription(s) | Budgets, locks, tags |
+| Governance | Reader | Subscription(s) | Locks, tags |
+| Billing | Billing Reader | Billing account(s) | Budgets |
 
 ### Checking Your Permissions
 
