@@ -1,7 +1,7 @@
 @{
     # Module metadata
     RootModule        = 'documenter-azure-landingzone.psm1'
-    ModuleVersion     = '1.1.0'
+    ModuleVersion     = '1.1.1'
     GUID              = 'd3d0da85-9b23-4c31-9861-2cad60ef45f5'
     Author            = 'Alex ter Neuzen'
     CompanyName       = 'GetToTheCloud'
@@ -66,6 +66,10 @@
             ProjectUri   = 'https://github.com/GetToThe-Cloud/documenter-azure-landingzone'
             IconUri      = ''
             ReleaseNotes = @'
+v1.1.1 (policy and RBAC assignment inventory fix — see changes.md)
+  - Scoped policy and role assignment collection to management groups and subscriptions
+  - De-duplicated inherited policy assignments by PolicyAssignmentId
+
 v1.1.0 (security hardening — see changes.md)
   - Removed wildcard CORS header; API is now same-origin only
   - CSRF protection: /api/auth/login and /api/inventory/refresh require POST + X-Requested-With header

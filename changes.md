@@ -1,5 +1,13 @@
 # Changes
 
+## v1.1.1 — Policy and RBAC inventory fix
+
+- Scoped policy and role assignment collection to every collected management group and subscription.
+- De-duplicated inherited policy assignments by `PolicyAssignmentId` so governance totals reflect distinct assignments.
+- De-duplicated role assignments by assignment ID, with stable fallbacks when an ID is unavailable.
+
+---
+
 ## v1.1.0 — Security hardening release
 
 Full remediation of the findings from the security audit of this repository.

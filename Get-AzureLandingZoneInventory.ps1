@@ -19,7 +19,7 @@
 #>
 
 # Script version
-$script:Version = "1.0.0"
+$script:Version = "1.1.1"
 
 # Progress file path for real-time progress reporting (per-user app dir, not the shared temp dir)
 $script:AppDataDir = Join-Path $HOME '.documenter-azure-landingzone'
