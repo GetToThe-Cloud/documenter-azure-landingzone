@@ -484,7 +484,7 @@ Complete network infrastructure visibility:
 Generated reports include:
 
 ### 📑 Cover Page
-- Tool name and version (v1.0.0)
+- Tool name and version (v1.3.0)
 - Generation timestamp
 - Tenant ID
 - Azure Landing Zone branding
