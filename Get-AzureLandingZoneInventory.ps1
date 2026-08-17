@@ -19,7 +19,7 @@
 #>
 
 # Script version
-$script:Version = "1.0.0"
+$script:Version = "1.1.1"
 
 # Progress file path for real-time progress reporting (per-user app dir, not the shared temp dir)
 $script:AppDataDir = Join-Path $HOME '.documenter-azure-landingzone'
@@ -554,7 +554,49 @@ Move Strategy:
         # Get Policy Assignments
         Update-CollectionProgress -Step 5 -TotalSteps $totalSteps -Status 'Collecting Policy Assignments...'
         try {
-            $assignments = Get-AzPolicyAssignment -ErrorAction SilentlyContinue
+            $assignments = @()
+            $assignmentKeys = @{}
+
+            # Policy assignments are commonly applied at management-group scope. Query
+            # every management group and subscription, then remove inherited duplicates.
+            $policyScopes = @(
+                $mgList | ForEach-Object {
+                    "/providers/Microsoft.Management/managementGroups/$($_.Name)"
+                }
+                $subs | ForEach-Object {
+                    $subscriptionId = if ($_.Id -match '^/subscriptions/') { $_.Id } else { "/subscriptions/$($_.Id)" }
+                    $subscriptionId
+                }
+            ) | Where-Object { $_ } | Select-Object -Unique
+
+            foreach ($scope in $policyScopes) {
+                try {
+                    foreach ($assignment in @(Get-AzPolicyAssignment -Scope $scope -ErrorAction SilentlyContinue)) {
+                        $assignmentScope = if ($assignment.Properties.Scope) {
+                            $assignment.Properties.Scope
+                        } elseif ($assignment.Scope) {
+                            $assignment.Scope
+                        } else {
+                            'Not specified'
+                        }
+                        $key = if ($assignment.PolicyAssignmentId) {
+                            $assignment.PolicyAssignmentId
+                        } elseif ($assignment.Properties.PolicyAssignmentId) {
+                            $assignment.Properties.PolicyAssignmentId
+                        } elseif ($assignment.Id) {
+                            $assignment.Id
+                        } else {
+                            "$($assignment.Name)|$assignmentScope"
+                        }
+                        if (-not $assignmentKeys.ContainsKey($key)) {
+                            $assignmentKeys[$key] = $true
+                            $assignments += $assignment
+                        }
+                    }
+                } catch {
+                    Write-Host "      ⚠️  Could not retrieve policy assignments at scope: $scope" -ForegroundColor Yellow
+                }
+            }
             $inventory.summary.totalPolicyAssignments = $assignments.Count
             
             foreach ($assignment in $assignments) {
@@ -576,12 +618,12 @@ Move Strategy:
                 }
                 
                 # Try to get scope from multiple possible locations
-                $assignmentScope = if ($assignment.Properties.Scope) { 
-                    $assignment.Properties.Scope 
-                } elseif ($assignment.Scope) { 
-                    $assignment.Scope 
-                } else { 
-                    'Not specified' 
+                $assignmentScope = if ($assignment.Properties.Scope) {
+                    $assignment.Properties.Scope
+                } elseif ($assignment.Scope) {
+                    $assignment.Scope
+                } else {
+                    'Not specified'
                 }
                 
                 $inventory.policies.assignments += @{
@@ -603,7 +645,38 @@ Move Strategy:
         # Get Role Assignments
         Update-CollectionProgress -Step 6 -TotalSteps $totalSteps -Status 'Collecting Role Assignments...'
         try {
-            $roles = Get-AzRoleAssignment -ErrorAction SilentlyContinue
+            $roles = @()
+            $roleKeys = @{}
+
+            # RBAC assignments can be defined at management-group scope and inherited
+            # by subscriptions, so query both levels and de-duplicate by assignment ID.
+            $roleScopes = @(
+                $mgList | ForEach-Object {
+                    "/providers/Microsoft.Management/managementGroups/$($_.Name)"
+                }
+                $subs | ForEach-Object {
+                    $subscriptionId = if ($_.Id -match '^/subscriptions/') { $_.Id } else { "/subscriptions/$($_.Id)" }
+                    $subscriptionId
+                }
+            ) | Where-Object { $_ } | Select-Object -Unique
+
+            foreach ($scope in $roleScopes) {
+                try {
+                    foreach ($role in @(Get-AzRoleAssignment -Scope $scope -ErrorAction SilentlyContinue)) {
+                        $key = if ($role.Id) {
+                            $role.Id
+                        } else {
+                            "$($role.Scope)|$($role.ObjectId)|$($role.RoleDefinitionId)"
+                        }
+                        if (-not $roleKeys.ContainsKey($key)) {
+                            $roleKeys[$key] = $true
+                            $roles += $role
+                        }
+                    }
+                } catch {
+                    Write-Host "      ⚠️  Could not retrieve role assignments at scope: $scope" -ForegroundColor Yellow
+                }
+            }
             $inventory.summary.totalRoleAssignments = $roles.Count
             
             foreach ($role in $roles) {
