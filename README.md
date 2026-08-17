@@ -17,7 +17,7 @@ The Azure Landing Zone Inventory Tool automatically collects and analyzes your A
 - **Real-Time Dashboard**: Interactive web interface with detailed resource information
 - **Automatic Module Management**: Installs missing required PowerShell modules
 
-**Version:** 1.3.0  
+**Version:** 1.3.0
 **Created by:** Alex ter Neuzen for [GetToTheCloud](https://www.gettothe.cloud)
 
 ## ✨ Key Features
