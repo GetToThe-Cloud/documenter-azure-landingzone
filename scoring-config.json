@@ -1,5 +1,5 @@
 {
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "Azure Landing Zone CAF/WAF Assessment Scoring Configuration",
   "lastUpdated": "2026-08-17",
   "categories": {
@@ -99,31 +99,39 @@
     "networkTopology": {
       "name": "Network Topology and Connectivity",
       "maxScore": 20,
-      "description": "Assessment of network architecture and connectivity implementation",
+      "description": "Assessment of hub networking design, security services, DNS, and workload connectivity",
       "rules": [
         {
           "id": "net-001",
-          "name": "Network Segmentation",
-          "description": "Multiple VNets for network segmentation",
-          "condition": "vnetCount >= 2",
+          "name": "Hub Network Foundation",
+          "description": "A hub VNet is present as the foundation for landing zone connectivity",
+          "condition": "vnetCount >= 1",
           "points": 5,
-          "recommendation": "Implement hub-spoke network topology or Azure Virtual WAN for enterprise-scale connectivity"
+          "recommendation": "Deploy a hub VNet as the foundation for enterprise-scale connectivity"
         },
         {
           "id": "net-002",
-          "name": "VNet Connectivity",
-          "description": "VNet peering implemented for hub-spoke or mesh connectivity",
-          "condition": "peeringCount > 0 AND vnetCount >= 2",
-          "points": 10,
-          "recommendation": "Connect VNets using peering or Virtual WAN for centralized connectivity"
+          "name": "Hub Connectivity Services",
+          "description": "A firewall, VPN gateway, or ExpressRoute circuit provides centralized connectivity",
+          "condition": "vpnCount > 0 OR fwCount > 0 OR expressRouteCount > 0",
+          "points": 5,
+          "recommendation": "Deploy appropriate hub connectivity services such as Azure Firewall, VPN Gateway, or ExpressRoute"
         },
         {
           "id": "net-003",
-          "name": "Network Security Appliances",
-          "description": "Network security appliances (VPN/Firewall) deployed",
-          "condition": "vpnCount > 0 OR fwCount > 0",
+          "name": "Private DNS Integration",
+          "description": "Private DNS zones are configured for name resolution across the landing zone",
+          "condition": "privateDnsCount > 0",
           "points": 5,
-          "recommendation": "Deploy Azure Firewall in hub VNet for centralized security and egress control"
+          "recommendation": "Configure Private DNS zones and links, or an Azure DNS Private Resolver, for landing zone name resolution"
+        },
+        {
+          "id": "net-004",
+          "name": "Workload Connectivity",
+          "description": "Workload VNets are connected to the hub when they are present",
+          "condition": "vnetCount >= 2 AND peeringCount > 0",
+          "points": 5,
+          "recommendation": "Connect workload VNets using peering or Virtual WAN as spokes are deployed"
         }
       ]
     },
@@ -143,10 +151,14 @@
         {
           "id": "sec-002",
           "name": "Network Micro-segmentation",
-          "description": "Network Security Groups deployed for subnet protection",
-          "condition": "nsgCount > 0",
+          "description": "NSGs protect eligible subnets, or centralized Azure Firewall/Defender for Cloud protection is deployed",
+          "condition": "nsgEligibleCount == 0 OR nsgProtectedCount >= nsgEligibleCount OR fwCount > 0 OR defenderCount > 0",
           "points": 5,
-          "recommendation": "Deploy Network Security Groups for subnet-level security and micro-segmentation"
+          "partialPoints": {
+            "condition": "nsgProtectedCount > 0",
+            "points": 3
+          },
+          "recommendation": "Deploy NSGs on eligible workload subnets or use Azure Firewall/Defender for Cloud for centralized protection; NSGs are not supported on AzureFirewallSubnet, GatewaySubnet, or RouteServerSubnet"
         }
       ]
     },
@@ -158,14 +170,14 @@
         {
           "id": "cost-001",
           "name": "Budget Implementation",
-          "description": "Cost management with budget alerts and monitoring",
+          "description": "Cost management with budget alerts and monitoring across the collected scope",
           "condition": "budgets >= 3",
           "points": 10,
           "partialPoints": {
             "condition": "budgets > 0",
             "points": 5
           },
-          "recommendation": "Configure Azure Budgets and Cost Management alerts for financial governance"
+          "recommendation": "Configure Azure Budgets and Cost Management alerts across workload and platform subscriptions"
         }
       ]
     },

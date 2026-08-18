@@ -19,7 +19,7 @@
 #>
 
 # Script version
-$script:Version = "1.3.0"
+$script:Version = "1.4.0"
 
 # Progress file path for real-time progress reporting (per-user app dir, not the shared temp dir)
 $script:AppDataDir = Join-Path $HOME '.documenter-azure-landingzone'
@@ -175,6 +175,7 @@ function Get-AzureLandingZoneInventory {
         }
         governance = @{
             budgets = @()
+            defenderPlans = @()
             tags = @{}
             locks = @()
             diagnosticSettings = @()
@@ -1463,6 +1464,42 @@ Move Strategy:
         
         # Get Governance Resources
         Update-CollectionProgress -Step 9 -TotalSteps $totalSteps -Status 'Collecting Governance Resources...'
+
+        # Budgets are collected at billing-account scope because Billing Reader access
+        # does not necessarily grant subscription-level Microsoft.Consumption access.
+        try {
+            $billingAccounts = @(Get-AzBillingAccount -ErrorAction Stop)
+            foreach ($billingAccount in $billingAccounts) {
+                $billingAccountName = if ($billingAccount.Name) { $billingAccount.Name } else { $billingAccount.Id.Split('/')[-1] }
+                $nextLink = "https://management.azure.com/providers/Microsoft.Billing/billingAccounts/$([uri]::EscapeDataString($billingAccountName))/providers/Microsoft.Consumption/budgets?api-version=2023-05-01"
+
+                do {
+                    $budgetResponse = Invoke-AzRestMethod -Method GET -Uri $nextLink -ErrorAction Stop
+                    $budgetPayload = $budgetResponse.Content | ConvertFrom-Json
+                    foreach ($budget in @($budgetPayload.value)) {
+                        $properties = $budget.properties
+                        $inventory.governance.budgets += @{
+                            name = $budget.name
+                            amount = $properties.amount
+                            timeGrain = $properties.timeGrain
+                            timePeriod = @{
+                                startDate = $properties.timePeriod.startDate
+                                endDate = $properties.timePeriod.endDate
+                            }
+                            currentSpend = $properties.currentSpend.amount
+                            billingAccount = $billingAccountName
+                            scope = $budget.id
+                        }
+                    }
+                    $nextLink = $budgetPayload.nextLink
+                } while ($nextLink)
+            }
+            $inventory.summary.totalBudgets = @($inventory.governance.budgets).Count
+            Write-Host "      ✓ Collected $($inventory.summary.totalBudgets) budget(s) from $($billingAccounts.Count) billing account(s)" -ForegroundColor Green
+        } catch {
+            Write-Host "      ⚠️  Could not collect billing-account budgets: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
+
         foreach ($sub in $subs) {
             try {
                 # Try to set context with better error handling
@@ -1477,24 +1514,15 @@ Move Strategy:
                     }
                 }
                 
-                # Budgets (requires Az.CostManagement module - skip if not available)
+                # Defender for Cloud pricing plans
                 try {
-                    if (Get-Command Get-AzConsumptionBudget -ErrorAction SilentlyContinue) {
-                        $budgets = Get-AzConsumptionBudget -ErrorAction SilentlyContinue
-                        foreach ($budget in $budgets) {
-                            $inventory.governance.budgets += @{
-                                name = $budget.Name
-                                amount = $budget.Amount
-                                timeGrain = $budget.TimeGrain
-                                timePeriod = @{
-                                    startDate = $budget.TimePeriod.StartDate
-                                    endDate = $budget.TimePeriod.EndDate
-                                }
-                                currentSpend = $budget.CurrentSpend.Amount
-                                subscription = $sub.Name
-                            }
+                    $defenderResources = @(Get-AzResource -ResourceType 'Microsoft.Security/pricings' -ErrorAction SilentlyContinue)
+                    foreach ($defenderResource in $defenderResources) {
+                        $inventory.governance.defenderPlans += @{
+                            name = $defenderResource.Name
+                            id = $defenderResource.ResourceId
+                            subscription = $sub.Name
                         }
-                        $inventory.summary.totalBudgets += $budgets.Count
                     }
                 } catch {}
                 
@@ -1673,9 +1701,18 @@ function Get-LandingZoneBestPracticesAssessment {
         peeringCount = $Inventory.summary.totalPeerings ?? 0
         vpnCount = if ($Inventory.networking.vpnGateways) { $Inventory.networking.vpnGateways.Count } else { 0 }
         fwCount = if ($Inventory.networking.firewalls) { $Inventory.networking.firewalls.Count } else { 0 }
+        expressRouteCount = if ($Inventory.networking.expressRoutes) { $Inventory.networking.expressRoutes.Count } else { 0 }
+        privateDnsCount = if ($Inventory.networking.privateDnsZones) { $Inventory.networking.privateDnsZones.Count } else { 0 }
+        defenderCount = if ($Inventory.governance.defenderPlans) { $Inventory.governance.defenderPlans.Count } else { 0 }
+        nsgEligibleCount = @($Inventory.networking.subnets | Where-Object {
+            $_.name -and $_.name -notmatch '^(AzureFirewallSubnet|GatewaySubnet|RouteServerSubnet)$'
+        }).Count
+        nsgProtectedCount = @($Inventory.networking.subnets | Where-Object {
+            $_.name -and $_.name -notmatch '^(AzureFirewallSubnet|GatewaySubnet|RouteServerSubnet)$' -and $_.networkSecurityGroupId
+        }).Count
         locks = $Inventory.summary.totalLocks ?? 0
         nsgCount = if ($Inventory.networking.networkSecurityGroups) { $Inventory.networking.networkSecurityGroups.Count } else { 0 }
-        budgets = $Inventory.summary.totalBudgets ?? 0
+        budgets = @($Inventory.governance.budgets | Where-Object { $_ }).Count
         tagCount = if ($Inventory.governance.tags.Keys) { $Inventory.governance.tags.Keys.Count } else { 0 }
         hasPrivilegedRoles = [bool]($Inventory.roleAssignments | Where-Object { $_.roleDefinitionName -match 'Owner|Contributor' })
     }

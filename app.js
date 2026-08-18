@@ -2,7 +2,7 @@
 let inventoryData = null;
 let isAuthenticated = false;
 let wafConfig = null;
-const APP_VERSION = "1.3.0";
+const APP_VERSION = "1.4.0";
 
 // Escape untrusted values before inserting into HTML (XSS protection)
 function escapeHtml(value) {
